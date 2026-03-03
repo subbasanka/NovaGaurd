@@ -6,7 +6,7 @@ NovaGuard audits any website for WCAG 2.2 Level AA violations, explains them thr
 
 ---
 
-## How It Works
+## How It Work
 
 ```
 Browser → Nova Act (crawl) → Nova 2 Lite (analyze + fix) → Human Approval → Nova Act (apply + verify) → Nova 2 Sonic (voice)
