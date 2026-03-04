@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NovaGuard — HTML Editor</title>
+  <style>
+    body { font-family: sans-serif; max-width: 900px; margin: 40px auto; padding: 0 20px; }
+    h1 { color: #222; }
+    textarea {
+      width: 100%;
+      height: 400px;
+      font-family: monospace;
+      font-size: 13px;
+      border: 1px solid #ccc;
+      padding: 12px;
+      box-sizing: border-box;
+      resize: vertical;
+    }
+    button {
+      margin-top: 12px;
+      padding: 8px 20px;
+      background: #4a90e2;
+      color: #fff;
+      border: none;
+      font-size: 14px;
+      cursor: pointer;
+      border-radius: 4px;
+    }
+    button:hover { background: #357abd; }
+    #status { margin-top: 10px; font-size: 14px; color: #555; min-height: 20px; }
+  </style>
+</head>
+<body>
+  <h1>HTML Editor (Admin)</h1>
+  <p>Edit the page HTML below and click Save to write changes back to <code>test-site/index.html</code>.</p>
+
+  <label for="html-content"><strong>Page HTML:</strong></label>
+  <textarea id="html-content" spellcheck="false"></textarea>
+
+  <button onclick="saveHtml()">Save</button>
+  <button onclick="loadHtml()" style="background:#888;margin-left:8px;">Reload</button>
+
+  <div id="status">Loading…</div>
+
+  <script>
+    const API = "http://localhost:8000";
+
+    async function loadHtml() {
+      setStatus("Loading…");
+      try {
+        const res = await fetch(`${API}/test-site/content`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        document.getElementById("html-content").value = await res.text();
+        setStatus("Loaded from test-site/index.html");
+      } catch (e) {
+        setStatus("Error loading: " + e.message);
+      }
+    }
+
+    async function saveHtml() {
+      const content = document.getElementById("html-content").value;
+      setStatus("Saving…");
+      try {
+        const res = await fetch(`${API}/test-site/save`, {
+          method: "POST",
+          headers: { "Content-Type": "text/plain" },
+          body: content,
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        setStatus("Saved at " + new Date().toLocaleTimeString());
+      } catch (e) {
+        setStatus("Error saving: " + e.message);
+      }
+    }
+
+    function setStatus(msg) {
+      document.getElementById("status").textContent = msg;
+    }
+
+    loadHtml();
+  </script>
+</body>
+</html>
