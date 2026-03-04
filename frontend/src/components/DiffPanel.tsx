@@ -10,6 +10,22 @@ interface Props {
 
 export function DiffPanel({ diff, status, runId, onApprove, verifyResult }: Props) {
   if (!diff) {
+    // Show approve/skip button even with no diffs so the pipeline isn't stuck
+    if (status === "awaiting_approval") {
+      return (
+        <div className="flex flex-col items-center justify-center h-full gap-4 p-4">
+          <p className="text-gray-500 text-sm text-center">
+            No fixes to review. You can approve to continue the pipeline.
+          </p>
+          <button
+            onClick={onApprove}
+            className="px-5 py-2 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 transition-colors shadow"
+          >
+            Approve &amp; Continue
+          </button>
+        </div>
+      );
+    }
     return (
       <div className="flex items-center justify-center h-full text-gray-400 text-sm p-4">
         Select "Review Fix" on a finding to see the diff.

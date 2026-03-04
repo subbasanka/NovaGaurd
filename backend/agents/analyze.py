@@ -74,7 +74,7 @@ def run_analysis(run_id: str) -> list[dict]:
 
     try:
         response = client.converse(
-            modelId="amazon.nova-lite-v2:0",
+            modelId="amazon.nova-lite-v1:0",
             system=[{"text": ANALYSIS_PROMPT}],
             messages=[{"role": "user", "content": content}],
             inferenceConfig={"maxTokens": 4096},

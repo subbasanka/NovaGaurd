@@ -38,7 +38,7 @@ def run_fix_generation(run_id: str, finding: dict, dom_html: str) -> dict | None
 
     try:
         response = client.converse(
-            modelId="amazon.nova-lite-v2:0",
+            modelId="amazon.nova-lite-v1:0",
             system=[{"text": FIX_GENERATION_PROMPT}],
             messages=[{"role": "user", "content": [{"text": user_text}]}],
             inferenceConfig={"maxTokens": 1024},

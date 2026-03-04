@@ -51,7 +51,7 @@ All six steps are orchestrated as a Strands Agent Graph with a deterministic HIT
 | Model | Role |
 |-------|------|
 | Nova Act | Browser automation — crawl & apply fixes |
-| Nova 2 Lite (`amazon.nova-lite-v2:0`) | Multimodal analysis + fix generation |
+| Nova 2 Lite (`amazon.nova-lite-v1:0`) | Multimodal analysis + fix generation |
 | Nova 2 Sonic | Voice interface for audit results |
 
 ---
