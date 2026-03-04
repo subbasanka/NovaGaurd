@@ -176,14 +176,27 @@ Key event types: `run_started`, `crawl_step`, `crawl_complete`, `finding_created
 
 ---
 
+## Voice Setup
+
+Voice requires the `bidi` extras for Strands:
+
+```bash
+cd backend
+pip install strands-agents[bidi]
+```
+
+Then use `POST /voice/ask` with `{ "question": "...", "run_id": "..." }`. The UI shows an "Ask Nova 2 Sonic" panel automatically after findings appear.
+
+---
+
 ## Implementation Progress
 
 - [x] Day 1 — Skeleton, event contract, mock UI, prompts
 - [x] Day 2 — Nova Act crawl agent (real browser + screenshots)
 - [x] Day 3 — Strands graph orchestration + HITL approval gate
-- [ ] Day 4 — Nova 2 Lite multimodal analysis + fix generation
-- [ ] Day 5 — Apply + verify loop + before/after evidence
-- [ ] Day 6 — Voice (Nova 2 Sonic) + demo hardening + submission
+- [x] Day 4 — Nova 2 Lite multimodal analysis + fix generation
+- [x] Day 5 — Apply + verify loop + before/after evidence
+- [x] Day 6 — Voice (Nova 2 Sonic) + demo hardening + submission
 
 ---
 

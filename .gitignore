@@ -44,3 +44,9 @@ desktop.ini
 *.log
 *.tmp
 
+#claude files
+.claude/
+Claude.md
+
+#Implementation Plan
+NovaGuard_6Day_Implementation_Plan.md
