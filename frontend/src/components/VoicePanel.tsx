@@ -121,7 +121,7 @@ export function VoicePanel({ runId, findings }: Props) {
       });
 
       // 3. Set up audio capture — use ScriptProcessorNode for broad compat
-      const audioCtx = new AudioContext({ sampleRate: 16000 });
+      const audioCtx = new AudioContext();
       audioContextRef.current = audioCtx;
 
       const source = audioCtx.createMediaStreamSource(stream);
@@ -130,14 +130,35 @@ export function VoicePanel({ runId, findings }: Props) {
       const processor = audioCtx.createScriptProcessor(4096, 1, 1);
       workletNodeRef.current = processor;
 
+      const TARGET_SAMPLE_RATE = 16000;
+
       processor.onaudioprocess = (e) => {
         if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
 
         const float32 = e.inputBuffer.getChannelData(0);
+        const inputRate = e.inputBuffer.sampleRate;
+
+        // Resample to 16 kHz if needed (browsers often use 48 kHz)
+        let toSend: Float32Array;
+        if (Math.abs(inputRate - TARGET_SAMPLE_RATE) < 100) {
+          toSend = float32;
+        } else {
+          const ratio = TARGET_SAMPLE_RATE / inputRate;
+          const outLen = Math.floor(float32.length * ratio);
+          toSend = new Float32Array(outLen);
+          for (let i = 0; i < outLen; i++) {
+            const srcIdx = i / ratio;
+            const lo = Math.floor(srcIdx);
+            const hi = Math.min(lo + 1, float32.length - 1);
+            const frac = srcIdx - lo;
+            toSend[i] = float32[lo] * (1 - frac) + float32[hi] * frac;
+          }
+        }
+
         // Convert Float32 [-1,1] to Int16 PCM
-        const int16 = new Int16Array(float32.length);
-        for (let i = 0; i < float32.length; i++) {
-          const s = Math.max(-1, Math.min(1, float32[i]));
+        const int16 = new Int16Array(toSend.length);
+        for (let i = 0; i < toSend.length; i++) {
+          const s = Math.max(-1, Math.min(1, toSend[i]));
           int16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
         }
         wsRef.current.send(int16.buffer);
@@ -151,18 +172,28 @@ export function VoicePanel({ runId, findings }: Props) {
       playbackCtxRef.current = playCtx;
       nextPlayTimeRef.current = playCtx.currentTime;
 
+      // Resume if suspended (some browsers require this even after user gesture)
+      if (playCtx.state === "suspended") {
+        await playCtx.resume();
+      }
+
       // 5. Handle incoming audio from server
-      ws.onmessage = (ev) => {
+      ws.onmessage = async (ev) => {
         if (ev.data instanceof ArrayBuffer && ev.data.byteLength > 0) {
+          const pCtx = playbackCtxRef.current;
+          if (!pCtx) return;
+
+          // Resume playback context if it was suspended
+          if (pCtx.state === "suspended") {
+            await pCtx.resume();
+          }
+
           // 24 kHz 16-bit mono PCM → Float32 for Web Audio
           const int16 = new Int16Array(ev.data);
           const float32 = new Float32Array(int16.length);
           for (let i = 0; i < int16.length; i++) {
             float32[i] = int16[i] / 32768;
           }
-
-          const pCtx = playbackCtxRef.current;
-          if (!pCtx) return;
 
           const buffer = pCtx.createBuffer(1, float32.length, 24000);
           buffer.getChannelData(0).set(float32);
@@ -273,7 +304,7 @@ export function VoicePanel({ runId, findings }: Props) {
         </div>
         <p className="text-xs text-gray-400 mt-0.5 truncate">
           {isStreaming
-            ? "Speak naturally — Nova 2 Sonic will respond with voice"
+            ? "Ask a question, then pause — Nova responds when you stop speaking"
             : "Click the mic to start a speech-to-speech conversation"}
         </p>
       </div>

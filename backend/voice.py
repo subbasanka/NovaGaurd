@@ -214,6 +214,7 @@ class NovaSonicSession:
         """Read events from Nova Sonic and enqueue audio output."""
         try:
             _, output = await self._stream.await_output()
+            audio_count = 0
             while True:
                 try:
                     event_data = await output.receive()
@@ -225,7 +226,8 @@ class NovaSonicSession:
                     continue
 
                 raw = event_data.value.bytes_.decode("utf-8")
-                event = json.loads(raw).get("event", {})
+                parsed = json.loads(raw)
+                event = parsed.get("event", parsed)
 
                 # Audio output — decode and enqueue
                 if "audioOutput" in event:
@@ -233,10 +235,18 @@ class NovaSonicSession:
                     if b64_audio:
                         pcm = base64.b64decode(b64_audio)
                         await self._output_queue.put(pcm)
+                        audio_count += 1
+                        if audio_count <= 3:
+                            logger.info("voice: received audio chunk %d (%d bytes)", audio_count, len(pcm))
 
                 # Content end for the response
                 elif "contentEnd" in event:
                     pass  # response turn ended — user can keep talking
+                else:
+                    # Log unknown event types once to help debug
+                    keys = list(event.keys()) if isinstance(event, dict) else []
+                    if keys and "audioOutput" not in keys and "contentEnd" not in keys:
+                        logger.debug("voice: received event keys: %s", keys)
 
         except asyncio.CancelledError:
             pass
