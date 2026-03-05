@@ -1,4 +1,6 @@
 import asyncio
+import json
+import logging
 import os
 import tempfile
 import uuid
@@ -7,12 +9,14 @@ from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, PlainTextResponse, Response
+from fastapi.responses import FileResponse, PlainTextResponse
 from pydantic import BaseModel
 
 from mock_pipeline import mock_pipeline
 from graph import build_graph
-from voice import get_voice_response
+from voice import NovaSonicSession
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="NovaGuard API")
 
@@ -175,18 +179,70 @@ async def save_test_site_content(request: Request):
     return {"status": "saved"}
 
 
-class VoiceRequest(BaseModel):
-    question: str
-    run_id: str | None = None
-
-
 @app.post("/voice/ask")
-async def voice_ask(body: VoiceRequest):
-    findings = runs.get(body.run_id or "", {}).get("findings", []) if body.run_id else []
-    wav = await get_voice_response(body.question, findings)
-    if wav is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Voice service unavailable. Install: pip install strands-agents[bidi]",
-        )
-    return Response(content=wav, media_type="audio/wav")
+async def voice_ask():
+    """Legacy REST voice endpoint — returns 503 to nudge the frontend toward the WebSocket voice."""
+    raise HTTPException(
+        status_code=503,
+        detail="Use the WebSocket voice endpoint ws://localhost:8000/ws/voice/{run_id} for speech-to-speech.",
+    )
+
+
+@app.websocket("/ws/voice/{run_id}")
+async def voice_websocket(websocket: WebSocket, run_id: str):
+    """Speech-to-speech WebSocket: browser sends PCM audio, receives PCM audio back.
+
+    Protocol:
+      Browser → Server:  binary frames of 16 kHz mono 16-bit PCM audio
+      Server → Browser:  binary frames of 24 kHz mono 16-bit PCM audio
+      Browser → Server:  JSON {"event": "stop"} to end the session
+    """
+    await websocket.accept()
+
+    findings = runs.get(run_id, {}).get("findings", [])
+    session = NovaSonicSession(findings=findings)
+
+    try:
+        await session.open()
+    except Exception as exc:
+        await websocket.send_json({"event": "error", "detail": str(exc)})
+        await websocket.close(code=1011)
+        return
+
+    # Send ready signal to the browser
+    await websocket.send_json({"event": "ready"})
+
+    async def forward_output():
+        """Stream audio from Nova Sonic → browser."""
+        try:
+            async for pcm_chunk in session.receive_audio():
+                try:
+                    await websocket.send_bytes(pcm_chunk)
+                except Exception:
+                    break
+        except Exception as exc:
+            logger.debug("voice ws: output forward ended: %s", exc)
+
+    output_task = asyncio.create_task(forward_output())
+
+    try:
+        while True:
+            message = await websocket.receive()
+            if "bytes" in message and message["bytes"]:
+                # Binary frame = PCM audio from mic
+                await session.send_audio(message["bytes"])
+            elif "text" in message and message["text"]:
+                data = json.loads(message["text"])
+                if data.get("event") == "stop":
+                    break
+    except WebSocketDisconnect:
+        pass
+    except Exception as exc:
+        logger.debug("voice ws: receive loop error: %s", exc)
+    finally:
+        await session.close()
+        output_task.cancel()
+        try:
+            await output_task
+        except (asyncio.CancelledError, Exception):
+            pass

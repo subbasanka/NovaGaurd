@@ -1,24 +1,53 @@
-"""Nova 2 Sonic voice response — text in, WAV audio out.
+"""Nova 2 Sonic speech-to-speech voice — real-time bidirectional audio over WebSocket.
 
-Uses BidiAgent + BidiNovaSonicModel from strands-agents[bidi].
-Requires: pip install strands-agents[bidi]
+Uses the low-level aws_sdk_bedrock_runtime bidirectional streaming API.
+The browser sends 16 kHz mono PCM chunks; we forward them to Nova Sonic and
+stream 24 kHz mono PCM audio responses back.
 
-Falls back gracefully if the bidi dependencies are not installed.
+Reference:
+  https://github.com/aws-samples/amazon-nova-samples/blob/main/speech-to-speech/
+  amazon-nova-2-sonic/sample-codes/console-python/nova_sonic_tool_use.py
 """
+
+from __future__ import annotations
 
 import asyncio
 import base64
+import json
 import logging
 import struct
+import uuid
+from typing import Any
+
+import boto3
 
 logger = logging.getLogger(__name__)
 
-VOICE_SYSTEM_PROMPT = """You are NovaGuard's voice assistant. You help developers understand web accessibility audit results.
-Be concise — respond in 2-3 sentences maximum. Speak naturally as if explaining to a developer.
-When asked about findings, lead with the most critical issue."""
+MODEL_ID = "amazon.nova-2-sonic-v1:0"
+INPUT_SAMPLE_RATE = 16000
+OUTPUT_SAMPLE_RATE = 24000
+
+VOICE_SYSTEM_PROMPT = (
+    "You are NovaGuard, a concise voice assistant for web accessibility audits. "
+    "Answer in 1-2 sentences. Lead with the most critical issue."
+)
 
 
-def _wav_header(pcm_length: int, sample_rate: int = 16000, channels: int = 1, bits: int = 16) -> bytes:
+def _build_context(findings: list[dict], max_chars: int = 800) -> str:
+    """Summarise findings into a compact string."""
+    if not findings:
+        return "No findings yet."
+    lines = ["Audit findings:"]
+    for f in findings[:3]:
+        sev = f.get("severity", "?").upper()
+        title = f.get("title", "?")
+        rec = f.get("recommendation", "")[:100]
+        lines.append(f"- [{sev}] {title}. {rec}")
+    text = "\n".join(lines)
+    return text[:max_chars]
+
+
+def _wav_header(pcm_length: int, sample_rate: int = 24000, channels: int = 1, bits: int = 16) -> bytes:
     """Build a 44-byte WAV header for raw LPCM data so browsers can play it."""
     byte_rate = sample_rate * channels * bits // 8
     block_align = channels * bits // 8
@@ -40,69 +69,314 @@ def _wav_header(pcm_length: int, sample_rate: int = 16000, channels: int = 1, bi
     )
 
 
-def _build_context(findings: list[dict]) -> str:
-    if not findings:
-        return "No findings yet."
-    lines = ["Accessibility audit findings:"]
-    for f in findings[:5]:
-        sev = f.get("severity", "?").upper()
-        title = f.get("title", "?")
-        rec = f.get("recommendation", "")
-        lines.append(f"- [{sev}] {title}. Fix: {rec}")
-    return "\n".join(lines)
+# ---------------------------------------------------------------------------
+# Nova Sonic bidirectional stream manager
+# ---------------------------------------------------------------------------
 
+class NovaSonicSession:
+    """Manages a single bidirectional session with Nova 2 Sonic.
+
+    Lifecycle:
+        session = NovaSonicSession(findings)
+        await session.open()            # establishes the Bedrock stream
+        await session.send_audio(pcm)   # forward browser mic chunks
+        async for pcm in session.receive_audio():
+            ...                         # stream audio back to browser
+        await session.close()
+    """
+
+    def __init__(self, findings: list[dict] | None = None, region: str = "us-east-1"):
+        self._findings = findings or []
+        self._region = region
+        self._prompt_name: str = str(uuid.uuid4())
+        self._audio_content_name: str = str(uuid.uuid4())
+        self._stream: Any = None
+        self._output_queue: asyncio.Queue[bytes | None] = asyncio.Queue()
+        self._receive_task: asyncio.Task | None = None
+        self._is_open = False
+        self._text_sent = False
+
+    # -- public API ----------------------------------------------------------
+
+    async def open(self) -> None:
+        """Open the bidirectional stream and send initialization events."""
+        try:
+            from aws_sdk_bedrock_runtime.client import (  # noqa: PLC0415
+                BedrockRuntimeClient,
+                InvokeModelWithBidirectionalStreamOperationInput,
+            )
+            from aws_sdk_bedrock_runtime.config import Config, HTTPAuthSchemeResolver  # noqa: PLC0415
+            from smithy_aws_core.auth import SigV4AuthScheme  # noqa: PLC0415
+            from smithy_aws_core.identity.static import StaticCredentialsResolver  # noqa: PLC0415
+            from smithy_core.shapes import ShapeID  # noqa: PLC0415
+        except ImportError:
+            logger.error("voice: aws_sdk_bedrock_runtime not installed")
+            raise RuntimeError("aws_sdk_bedrock_runtime not installed")
+
+        session = boto3.Session()
+        credentials = session.get_credentials()
+        if not credentials:
+            raise RuntimeError("No AWS credentials found")
+
+        # Use the same pattern as strands BidiNovaSonicModel:
+        # StaticCredentialsResolver + credentials as Config properties
+        config = Config(
+            endpoint_uri=f"https://bedrock-runtime.{self._region}.amazonaws.com",
+            region=self._region,
+            aws_credentials_identity_resolver=StaticCredentialsResolver(),
+            auth_scheme_resolver=HTTPAuthSchemeResolver(),
+            auth_schemes={ShapeID("aws.auth#sigv4"): SigV4AuthScheme(service="bedrock")},
+            aws_access_key_id=credentials.access_key,
+            aws_secret_access_key=credentials.secret_key,
+            aws_session_token=credentials.token,
+        )
+
+        client = BedrockRuntimeClient(config=config)
+        self._stream = await client.invoke_model_with_bidirectional_stream(
+            InvokeModelWithBidirectionalStreamOperationInput(model_id=MODEL_ID)
+        )
+
+        # Send initialization sequence
+        await self._send_event(self._session_start_event())
+        await self._send_event(self._prompt_start_event())
+
+        # System prompt
+        sys_content = str(uuid.uuid4())
+        await self._send_event(self._text_content_start("SYSTEM", sys_content, interactive=False))
+        await self._send_event(self._text_input(sys_content, VOICE_SYSTEM_PROMPT))
+        await self._send_event(self._content_end(sys_content))
+
+        # Inject audit context as a non-interactive assistant text block
+        context = _build_context(self._findings)
+        if context and context != "No findings yet.":
+            ctx_content = str(uuid.uuid4())
+            await self._send_event(self._text_content_start("ASSISTANT", ctx_content, interactive=False))
+            await self._send_event(self._text_input(ctx_content, f"Here are the current audit findings:\n{context}"))
+            await self._send_event(self._content_end(ctx_content))
+
+        # Start the audio input channel
+        await self._send_event(self._audio_content_start())
+
+        self._is_open = True
+
+        # Start background task to receive events from Nova Sonic
+        self._receive_task = asyncio.create_task(self._receive_loop())
+        logger.info("voice: Nova Sonic session opened (prompt=%s)", self._prompt_name)
+
+    async def send_audio(self, pcm_bytes: bytes) -> None:
+        """Forward a chunk of 16 kHz mono PCM audio to Nova Sonic."""
+        if not self._is_open:
+            return
+        b64 = base64.b64encode(pcm_bytes).decode("ascii")
+        await self._send_event(self._audio_input(b64))
+
+    async def receive_audio(self):
+        """Async generator that yields PCM audio bytes from Nova Sonic."""
+        while True:
+            chunk = await self._output_queue.get()
+            if chunk is None:
+                break
+            yield chunk
+
+    async def close(self) -> None:
+        """Gracefully close the session."""
+        if not self._is_open:
+            return
+        self._is_open = False
+
+        try:
+            # End audio content
+            await self._send_event(self._content_end(self._audio_content_name))
+            # End prompt
+            await self._send_event(self._prompt_end())
+            # End session
+            await self._send_event(self._session_end())
+            # Close the stream
+            if self._stream:
+                await self._stream.input_stream.close()
+        except Exception as exc:
+            logger.debug("voice: cleanup error (expected): %s", exc)
+
+        if self._receive_task and not self._receive_task.done():
+            self._receive_task.cancel()
+            try:
+                await self._receive_task
+            except (asyncio.CancelledError, Exception):
+                pass
+
+        # Signal consumer to stop
+        await self._output_queue.put(None)
+        logger.info("voice: Nova Sonic session closed")
+
+    # -- background receiver -------------------------------------------------
+
+    async def _receive_loop(self) -> None:
+        """Read events from Nova Sonic and enqueue audio output."""
+        try:
+            _, output = await self._stream.await_output()
+            while True:
+                try:
+                    event_data = await output.receive()
+                except Exception as exc:
+                    logger.debug("voice: receive stream ended: %s", exc)
+                    break
+
+                if not event_data:
+                    continue
+
+                raw = event_data.value.bytes_.decode("utf-8")
+                event = json.loads(raw).get("event", {})
+
+                # Audio output — decode and enqueue
+                if "audioOutput" in event:
+                    b64_audio = event["audioOutput"].get("content", "")
+                    if b64_audio:
+                        pcm = base64.b64decode(b64_audio)
+                        await self._output_queue.put(pcm)
+
+                # Content end for the response
+                elif "contentEnd" in event:
+                    pass  # response turn ended — user can keep talking
+
+        except asyncio.CancelledError:
+            pass
+        except Exception as exc:
+            logger.error("voice: receive loop error: %s", exc, exc_info=True)
+        finally:
+            await self._output_queue.put(None)
+
+    # -- event builders ------------------------------------------------------
+
+    def _session_start_event(self) -> dict:
+        return {
+            "event": {
+                "sessionStart": {
+                    "inferenceConfiguration": {
+                        "maxTokens": 1024,
+                        "topP": 0.9,
+                        "temperature": 0.7,
+                    }
+                }
+            }
+        }
+
+    def _prompt_start_event(self) -> dict:
+        return {
+            "event": {
+                "promptStart": {
+                    "promptName": self._prompt_name,
+                    "textOutputConfiguration": {"mediaType": "text/plain"},
+                    "audioOutputConfiguration": {
+                        "mediaType": "audio/lpcm",
+                        "sampleRateHertz": OUTPUT_SAMPLE_RATE,
+                        "sampleSizeBits": 16,
+                        "channelCount": 1,
+                        "voiceId": "tiffany",
+                        "encoding": "base64",
+                    },
+                }
+            }
+        }
+
+    def _text_content_start(self, role: str, content_name: str, interactive: bool = False) -> dict:
+        return {
+            "event": {
+                "contentStart": {
+                    "promptName": self._prompt_name,
+                    "contentName": content_name,
+                    "type": "TEXT",
+                    "role": role,
+                    "interactive": interactive,
+                    "textInputConfiguration": {"mediaType": "text/plain"},
+                }
+            }
+        }
+
+    def _text_input(self, content_name: str, text: str) -> dict:
+        return {
+            "event": {
+                "textInput": {
+                    "promptName": self._prompt_name,
+                    "contentName": content_name,
+                    "content": text,
+                }
+            }
+        }
+
+    def _audio_content_start(self) -> dict:
+        return {
+            "event": {
+                "contentStart": {
+                    "promptName": self._prompt_name,
+                    "contentName": self._audio_content_name,
+                    "type": "AUDIO",
+                    "interactive": True,
+                    "role": "USER",
+                    "audioInputConfiguration": {
+                        "mediaType": "audio/lpcm",
+                        "sampleRateHertz": INPUT_SAMPLE_RATE,
+                        "sampleSizeBits": 16,
+                        "channelCount": 1,
+                        "audioType": "SPEECH",
+                        "encoding": "base64",
+                    },
+                }
+            }
+        }
+
+    def _audio_input(self, b64_content: str) -> dict:
+        return {
+            "event": {
+                "audioInput": {
+                    "promptName": self._prompt_name,
+                    "contentName": self._audio_content_name,
+                    "content": b64_content,
+                }
+            }
+        }
+
+    def _content_end(self, content_name: str) -> dict:
+        return {
+            "event": {
+                "contentEnd": {
+                    "promptName": self._prompt_name,
+                    "contentName": content_name,
+                }
+            }
+        }
+
+    def _prompt_end(self) -> dict:
+        return {"event": {"promptEnd": {"promptName": self._prompt_name}}}
+
+    def _session_end(self) -> dict:
+        return {"event": {"sessionEnd": {}}}
+
+    # -- transport -----------------------------------------------------------
+
+    async def _send_event(self, event: dict) -> None:
+        """Send a JSON event to Nova Sonic's input stream."""
+        from aws_sdk_bedrock_runtime.models import (  # noqa: PLC0415
+            InvokeModelWithBidirectionalStreamInputChunk,
+            BidirectionalInputPayloadPart,
+        )
+
+        payload = json.dumps(event).encode("utf-8")
+        chunk = InvokeModelWithBidirectionalStreamInputChunk(
+            value=BidirectionalInputPayloadPart(bytes_=payload)
+        )
+        await self._stream.input_stream.send(chunk)
+
+
+# ---------------------------------------------------------------------------
+# Legacy REST endpoint fallback (text question → WAV response)
+# Uses Bedrock Converse with Nova Lite for a text answer, no audio.
+# ---------------------------------------------------------------------------
 
 async def get_voice_response(question: str, findings: list[dict]) -> bytes | None:
-    """Ask Nova 2 Sonic a question about audit findings. Returns WAV bytes or None.
+    """Fallback: generate a text answer via Nova Lite and return None (no audio).
 
-    Returns None if the bidi dependencies are not installed or on any error.
+    The primary voice path is now the WebSocket speech-to-speech endpoint.
+    This is kept for backwards-compat but returns None to signal the frontend
+    to use the WebSocket voice panel instead.
     """
-    try:
-        from strands.experimental.bidi import (  # noqa: PLC0415
-            BidiAgent,
-            BidiAudioStreamEvent,
-            BidiResponseCompleteEvent,
-            BidiTextInputEvent,
-            stop_conversation,
-        )
-        from strands.experimental.bidi.models import BidiNovaSonicModel  # noqa: PLC0415
-    except ImportError:
-        logger.warning(
-            "voice: BidiNovaSonicModel unavailable — run: pip install strands-agents[bidi]"
-        )
-        return None
-
-    context = _build_context(findings)
-    full_input = f"{context}\n\nQuestion: {question}"
-
-    audio_chunks: list[bytes] = []
-
-    try:
-        async with BidiAgent(
-            model=BidiNovaSonicModel(),
-            tools=[stop_conversation],
-            system_prompt=VOICE_SYSTEM_PROMPT,
-        ) as agent:
-            await agent.send(BidiTextInputEvent(text=full_input))
-
-            async with asyncio.timeout(30.0):
-                async for event in agent.receive():
-                    if isinstance(event, BidiAudioStreamEvent):
-                        # audio is base64-encoded LPCM
-                        raw = base64.b64decode(event.audio)
-                        audio_chunks.append(raw)
-                    elif isinstance(event, BidiResponseCompleteEvent):
-                        break
-
-    except TimeoutError:
-        logger.warning("voice: timed out after 30s — returning partial audio")
-    except Exception as exc:
-        logger.error("voice: BidiAgent error: %s", exc)
-        return None
-
-    if not audio_chunks:
-        logger.warning("voice: no audio chunks received")
-        return None
-
-    pcm = b"".join(audio_chunks)
-    return _wav_header(len(pcm)) + pcm
+    return None

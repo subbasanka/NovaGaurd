@@ -176,16 +176,21 @@ Key event types: `run_started`, `crawl_step`, `crawl_complete`, `finding_created
 
 ---
 
-## Voice Setup
+## Voice Setup (Speech-to-Speech)
 
-Voice requires the `bidi` extras for Strands:
+Voice uses Nova 2 Sonic (`amazon.nova-2-sonic-v1:0`) for real-time speech-to-speech via a WebSocket.
 
 ```bash
 cd backend
-pip install strands-agents[bidi]
+pip install strands-agents[bidi] aws-sdk-bedrock-runtime
 ```
 
-Then use `POST /voice/ask` with `{ "question": "...", "run_id": "..." }`. The UI shows an "Ask Nova 2 Sonic" panel automatically after findings appear.
+The UI shows a mic button after findings appear. Click it to start a live conversation — your mic audio streams to Nova Sonic and you hear the response in real-time.
+
+**WebSocket protocol** (`ws://localhost:8000/ws/voice/{run_id}`):
+- Browser → Server: binary frames of 16 kHz mono 16-bit PCM
+- Server → Browser: binary frames of 24 kHz mono 16-bit PCM
+- Browser → Server: JSON `{"event": "stop"}` to end
 
 ---
 
