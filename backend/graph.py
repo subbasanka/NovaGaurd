@@ -8,10 +8,24 @@ Day 5: Apply + Verify replaced with real Nova Act agents.
 """
 
 import asyncio
+import logging
 from datetime import datetime, timezone
 from typing import Any
 
-from strands.multiagent import GraphBuilder, MultiAgentBase, MultiAgentResult, Status
+from strands.multiagent import GraphBuilder, MultiAgentBase, MultiAgentResult
+from strands.multiagent.base import Status
+
+logger = logging.getLogger(__name__)
+
+
+class AgentError(Exception):
+    """Raised when an agent node fails. Carries stage for UI error reporting."""
+
+    def __init__(self, stage: str, message: str, cause: Exception | None = None):
+        self.stage = stage
+        self.message = message
+        self.cause = cause
+        super().__init__(message)
 
 from agents.crawl import crawl_site
 from agents.analyze import run_analysis, BASE_DIR as ANALYSIS_BASE_DIR
@@ -40,7 +54,11 @@ class CrawlNode(MultiAgentBase):
         self, task: Any, invocation_state: dict | None = None, **kwargs: Any
     ) -> MultiAgentResult:
         run_state = (invocation_state or {})["run_state"]
-        await crawl_site(run_state["run_id"], run_state["url"], run_state)
+        try:
+            await crawl_site(run_state["run_id"], run_state["url"], run_state)
+        except Exception as exc:
+            logger.exception("CrawlNode failed for run %s", run_state["run_id"])
+            raise AgentError("crawl", str(exc), exc) from exc
         return MultiAgentResult(status=Status.COMPLETED)
 
 
@@ -54,10 +72,13 @@ class AnalyzeNode(MultiAgentBase):
     ) -> MultiAgentResult:
         run_state = (invocation_state or {})["run_state"]
         loop = asyncio.get_event_loop()
-
-        findings = await loop.run_in_executor(
-            None, run_analysis, run_state["run_id"]
-        )
+        try:
+            findings = await loop.run_in_executor(
+                None, run_analysis, run_state["run_id"]
+            )
+        except Exception as exc:
+            logger.exception("AnalyzeNode failed for run %s", run_state["run_id"])
+            raise AgentError("analyze", str(exc), exc) from exc
 
         for finding in findings:
             run_state["findings"].append(finding)
@@ -93,9 +114,13 @@ class FixNode(MultiAgentBase):
         dom_html = dom_path.read_text(encoding="utf-8") if dom_path.exists() else ""
 
         loop = asyncio.get_event_loop()
-        diff = await loop.run_in_executor(
-            None, run_fix_generation, run_state["run_id"], top_finding, dom_html
-        )
+        try:
+            diff = await loop.run_in_executor(
+                None, run_fix_generation, run_state["run_id"], top_finding, dom_html
+            )
+        except Exception as exc:
+            logger.exception("FixNode failed for run %s", run_state["run_id"])
+            raise AgentError("fix", str(exc), exc) from exc
 
         if diff:
             run_state["diffs"] = [diff]

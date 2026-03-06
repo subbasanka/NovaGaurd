@@ -7,6 +7,7 @@ from pathlib import Path
 
 import boto3
 
+from config import get_settings
 from prompts import ANALYSIS_PROMPT
 
 logger = logging.getLogger(__name__)
@@ -65,7 +66,8 @@ def run_analysis(run_id: str) -> list[dict]:
     Runs synchronously — call via loop.run_in_executor from async context.
     Falls back to empty list on any error so the pipeline continues.
     """
-    client = boto3.client("bedrock-runtime", region_name="us-east-1")
+    settings = get_settings()
+    client = boto3.client("bedrock-runtime", region_name=settings.bedrock_region)
     content = build_analysis_input(run_id)
 
     if not content:
@@ -74,7 +76,7 @@ def run_analysis(run_id: str) -> list[dict]:
 
     try:
         response = client.converse(
-            modelId="amazon.nova-lite-v1:0",
+            modelId=settings.nova_model_id,
             system=[{"text": ANALYSIS_PROMPT}],
             messages=[{"role": "user", "content": content}],
             inferenceConfig={"maxTokens": 4096},

@@ -7,6 +7,7 @@ from pathlib import Path
 
 import boto3
 
+from config import get_settings
 from prompts import FIX_GENERATION_PROMPT
 
 logger = logging.getLogger(__name__)
@@ -28,7 +29,8 @@ def run_fix_generation(run_id: str, finding: dict, dom_html: str) -> dict | None
     Runs synchronously — call via loop.run_in_executor from async context.
     Returns None on failure so the caller can skip gracefully.
     """
-    client = boto3.client("bedrock-runtime", region_name="us-east-1")
+    settings = get_settings()
+    client = boto3.client("bedrock-runtime", region_name=settings.bedrock_region)
 
     user_text = (
         f"Accessibility finding to fix:\n{json.dumps(finding, indent=2)}\n\n"
@@ -38,7 +40,7 @@ def run_fix_generation(run_id: str, finding: dict, dom_html: str) -> dict | None
 
     try:
         response = client.converse(
-            modelId="amazon.nova-lite-v1:0",
+            modelId=settings.nova_model_id,
             system=[{"text": FIX_GENERATION_PROMPT}],
             messages=[{"role": "user", "content": [{"text": user_text}]}],
             inferenceConfig={"maxTokens": 1024},

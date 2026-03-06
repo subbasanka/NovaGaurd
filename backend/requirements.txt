@@ -4,3 +4,4 @@ nova-act
 strands-agents[bidi]
 boto3
 aws-sdk-bedrock-runtime
+pydantic-settings

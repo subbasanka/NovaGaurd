@@ -1,11 +1,13 @@
 import { useState, useCallback } from "react";
 import type { Diff } from "./types";
+import { getApiUrl } from "./api";
 import { useAuditWebSocket } from "./hooks/useAuditWebSocket";
 import { StartPanel } from "./components/StartPanel";
 import { Timeline } from "./components/Timeline";
 import { FindingsPanel } from "./components/FindingsPanel";
 import { DiffPanel } from "./components/DiffPanel";
 import { VoicePanel } from "./components/VoicePanel";
+import { ErrorToast } from "./components/ErrorToast";
 
 function getSavedRunId(): string | null {
   try {
@@ -19,32 +21,49 @@ export default function App() {
   const [runId, setRunId] = useState<string | null>(getSavedRunId);
   const [targetUrl, setTargetUrl] = useState("http://localhost:8080");
   const [selectedDiff, setSelectedDiff] = useState<Diff | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const handleRunInvalid = useCallback(() => {
     setRunId(null);
     setSelectedDiff(null);
   }, []);
 
-  const { events, findings, diffs, status, verifyResult, summary } =
+  const { events, findings, diffs, status, verifyResult, summary, runError, clearRunError } =
     useAuditWebSocket(runId, handleRunInvalid);
 
   async function startAudit() {
-    const res = await fetch("http://localhost:8000/runs/start", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url: targetUrl }),
-    });
-    const data = await res.json();
-    setSelectedDiff(null);
-    setRunId(data.run_id);
+    setError(null);
     try {
-      sessionStorage.setItem("novaguard_run_id", data.run_id);
-    } catch { /* ignore */ }
+      const res = await fetch(`${getApiUrl()}/runs/start`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: targetUrl }),
+      });
+      const data = (await res.json()) as { run_id?: string; detail?: string };
+      if (!res.ok) {
+        setError(data.detail ?? `Request failed (${res.status})`);
+        return;
+      }
+      if (!data.run_id) {
+        setError("Invalid response: missing run_id");
+        return;
+      }
+      setSelectedDiff(null);
+      setRunId(data.run_id);
+      try {
+        sessionStorage.setItem("novaguard_run_id", data.run_id);
+      } catch {
+        /* ignore */
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to start audit";
+      setError(msg);
+    }
   }
 
   async function approveFixes() {
     if (!runId) return;
-    await fetch(`http://localhost:8000/runs/${runId}/approve`, { method: "POST" });
+    await fetch(`${getApiUrl()}/runs/${runId}/approve`, { method: "POST" });
   }
 
   return (
@@ -123,6 +142,16 @@ export default function App() {
           </div>
           <VoicePanel runId={runId} findings={findings} />
         </div>
+      )}
+
+      {(error ?? runError) && (
+        <ErrorToast
+          message={error ?? runError ?? ""}
+          onDismiss={() => {
+            setError(null);
+            clearRunError();
+          }}
+        />
       )}
     </div>
   );

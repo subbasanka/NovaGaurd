@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import type { Finding } from "../types";
+import { getWsUrl } from "../api";
 
 interface Props {
   runId: string | null;
@@ -25,6 +26,7 @@ export function VoicePanel({ runId, findings }: Props) {
   const workletNodeRef = useRef<AudioWorkletNode | ScriptProcessorNode | null>(null);
   const playbackCtxRef = useRef<AudioContext | null>(null);
   const nextPlayTimeRef = useRef<number>(0);
+  const speakingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Cleanup everything
   const cleanup = useCallback(() => {
@@ -41,6 +43,11 @@ export function VoicePanel({ runId, findings }: Props) {
     }
 
     workletNodeRef.current = null;
+
+    if (speakingTimeoutRef.current) {
+      clearTimeout(speakingTimeoutRef.current);
+      speakingTimeoutRef.current = null;
+    }
 
     // Close WebSocket
     if (wsRef.current) {
@@ -83,7 +90,7 @@ export function VoicePanel({ runId, findings }: Props) {
       mediaStreamRef.current = stream;
 
       // 2. Connect WebSocket
-      const ws = new WebSocket(`ws://localhost:8000/ws/voice/${runId}`);
+      const ws = new WebSocket(getWsUrl(`/ws/voice/${runId}`));
       ws.binaryType = "arraybuffer";
       wsRef.current = ws;
 
@@ -209,6 +216,13 @@ export function VoicePanel({ runId, findings }: Props) {
           nextPlayTimeRef.current = startAt + buffer.duration;
 
           setStatus("speaking");
+
+          // After playback ends, return to listening (Nova may send more chunks)
+          if (speakingTimeoutRef.current) clearTimeout(speakingTimeoutRef.current);
+          speakingTimeoutRef.current = setTimeout(() => {
+            speakingTimeoutRef.current = null;
+            setStatus("listening");
+          }, buffer.duration * 1000 + 300);
         } else if (typeof ev.data === "string") {
           const msg = JSON.parse(ev.data);
           if (msg.event === "error") {
@@ -304,7 +318,7 @@ export function VoicePanel({ runId, findings }: Props) {
         </div>
         <p className="text-xs text-gray-400 mt-0.5 truncate">
           {isStreaming
-            ? "Ask a question, then pause — Nova responds when you stop speaking"
+            ? "Speak your question, then pause 1–2 seconds — Nova detects when you stop"
             : "Click the mic to start a speech-to-speech conversation"}
         </p>
       </div>

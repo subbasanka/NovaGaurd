@@ -1,28 +1,45 @@
 import asyncio
 import json
 import logging
-import os
+import re
 import tempfile
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
+import boto3
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, PlainTextResponse
-from pydantic import BaseModel
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
+from pydantic import BaseModel, field_validator
 
+from config import get_settings
 from mock_pipeline import mock_pipeline
-from graph import build_graph
+from graph import AgentError, build_graph
 from voice import NovaSonicSession
+from repositories import InMemoryRunRepository
 
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="NovaGuard API")
 
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """Return consistent JSON for validation errors."""
+    errors = exc.errors()
+    first = errors[0] if errors else {}
+    msg = first.get("msg", "Validation error")
+    if "loc" in first and len(first["loc"]) > 1:
+        field = first["loc"][-1]
+        msg = f"{field}: {msg}"
+    return JSONResponse(status_code=400, content={"detail": msg})
+
+settings = get_settings()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:8080"],
+    allow_origins=settings.cors_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -30,11 +47,28 @@ app.add_middleware(
 BASE_DIR = Path(tempfile.gettempdir()) / "novaguard" / "runs"
 TEST_SITE_INDEX = Path(__file__).parent.parent / "test-site" / "index.html"
 
-runs: dict[str, dict] = {}
+# Repository for run state — swap to DynamoDB/PostgreSQL for production
+run_repo = InMemoryRunRepository()
+
+# URL validation
+URL_MAX_LENGTH = 2048
+URL_PATTERN = re.compile(r"^https?://[^\s]+$", re.IGNORECASE)
 
 
 class StartRunRequest(BaseModel):
     url: str
+
+    @field_validator("url")
+    @classmethod
+    def validate_url(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("URL is required")
+        if len(v) > URL_MAX_LENGTH:
+            raise ValueError(f"URL must be at most {URL_MAX_LENGTH} characters")
+        if not URL_PATTERN.match(v):
+            raise ValueError("URL must start with http:// or https://")
+        return v
 
 
 def _emit(run_state: dict, run_id: str, event_type: str, data: dict):
@@ -58,7 +92,9 @@ async def run_graph_pipeline(run_id: str, run_state: dict) -> None:
             invocation_state={"run_state": run_state},
         )
     except Exception as exc:
-        _emit(run_state, run_id, "run_failed", {"error": str(exc)})
+        logger.exception("Pipeline failed for run %s", run_id)
+        stage = exc.stage if isinstance(exc, AgentError) else "pipeline"
+        _emit(run_state, run_id, "run_failed", {"error": str(exc), "stage": stage})
         run_state["status"] = "failed"
         return
 
@@ -72,6 +108,45 @@ async def run_graph_pipeline(run_id: str, run_state: dict) -> None:
             "verified": verified,
         },
     })
+
+
+# ---------------------------------------------------------------------------
+# Health & Readiness
+# ---------------------------------------------------------------------------
+
+
+@app.get("/health")
+async def health():
+    """Simple liveness probe."""
+    return {"status": "ok"}
+
+
+@app.get("/ready")
+async def ready():
+    """Readiness probe — verifies AWS credentials and optionally Bedrock connectivity."""
+    try:
+        session = boto3.Session()
+        creds = session.get_credentials()
+        if not creds:
+            raise HTTPException(status_code=503, detail="AWS credentials not configured")
+        if settings.ready_check_bedrock:
+            client = boto3.client("bedrock-runtime", region_name=settings.bedrock_region)
+            client.converse(
+                modelId=settings.nova_model_id,
+                messages=[{"role": "user", "content": [{"text": "Hi"}]}],
+                inferenceConfig={"maxTokens": 1},
+            )
+        return {"status": "ready"}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.warning("Ready check failed: %s", exc)
+        raise HTTPException(status_code=503, detail=f"Not ready: {exc}") from exc
+
+
+# ---------------------------------------------------------------------------
+# Run endpoints
+# ---------------------------------------------------------------------------
 
 
 @app.post("/runs/start")
@@ -88,9 +163,9 @@ async def start_run(body: StartRunRequest):
         "diffs": [],
         "screenshots": [],
     }
-    runs[run_id] = run_state
+    run_repo.create(run_state)
 
-    if os.getenv("MOCK_MODE") == "1":
+    if settings.mock_mode:
         asyncio.create_task(mock_pipeline(run_id, run_state))
     else:
         asyncio.create_task(run_graph_pipeline(run_id, run_state))
@@ -100,9 +175,9 @@ async def start_run(body: StartRunRequest):
 
 @app.get("/runs/{run_id}")
 async def get_run(run_id: str):
-    if run_id not in runs:
+    state = run_repo.get(run_id)
+    if not state:
         raise HTTPException(status_code=404, detail="Run not found")
-    state = runs[run_id]
     return {
         "run_id": run_id,
         "url": state["url"],
@@ -115,9 +190,10 @@ async def get_run(run_id: str):
 
 @app.post("/runs/{run_id}/approve")
 async def approve_run(run_id: str):
-    if run_id not in runs:
+    state = run_repo.get(run_id)
+    if not state:
         raise HTTPException(status_code=404, detail="Run not found")
-    runs[run_id]["approved"] = True
+    run_repo.update(run_id, {"approved": True})
     return {"status": "approved"}
 
 
@@ -125,7 +201,8 @@ async def approve_run(run_id: str):
 async def websocket_endpoint(websocket: WebSocket, run_id: str):
     await websocket.accept()
 
-    if run_id not in runs:
+    run_state = run_repo.get(run_id)
+    if not run_state:
         await websocket.send_json({
             "run_id": run_id,
             "event": "run_failed",
@@ -135,7 +212,6 @@ async def websocket_endpoint(websocket: WebSocket, run_id: str):
         await websocket.close(code=4004)
         return
 
-    run_state = runs[run_id]
     queue: asyncio.Queue = run_state["event_queue"]
 
     try:
@@ -143,15 +219,12 @@ async def websocket_endpoint(websocket: WebSocket, run_id: str):
             try:
                 event = await asyncio.wait_for(queue.get(), timeout=30.0)
                 await websocket.send_json(event)
-                # Pipeline signals completion via run_completed event
                 if event.get("event") in ("run_completed", "run_failed"):
-                    # Drain any remaining events then close
                     while not queue.empty():
                         leftover = queue.get_nowait()
                         await websocket.send_json(leftover)
                     break
             except asyncio.TimeoutError:
-                # Send ping to keep connection alive
                 await websocket.send_json({"event": "ping"})
     except WebSocketDisconnect:
         pass
@@ -182,25 +255,21 @@ async def save_test_site_content(request: Request):
 @app.post("/voice/ask")
 async def voice_ask():
     """Legacy REST voice endpoint — returns 503 to nudge the frontend toward the WebSocket voice."""
+    ws_base = settings.api_base_url.replace("http://", "ws://").replace("https://", "wss://")
     raise HTTPException(
         status_code=503,
-        detail="Use the WebSocket voice endpoint ws://localhost:8000/ws/voice/{run_id} for speech-to-speech.",
+        detail=f"Use the WebSocket voice endpoint {ws_base}/ws/voice/{{run_id}} for speech-to-speech.",
     )
 
 
 @app.websocket("/ws/voice/{run_id}")
 async def voice_websocket(websocket: WebSocket, run_id: str):
-    """Speech-to-speech WebSocket: browser sends PCM audio, receives PCM audio back.
-
-    Protocol:
-      Browser → Server:  binary frames of 16 kHz mono 16-bit PCM audio
-      Server → Browser:  binary frames of 24 kHz mono 16-bit PCM audio
-      Browser → Server:  JSON {"event": "stop"} to end the session
-    """
+    """Speech-to-speech WebSocket: browser sends PCM audio, receives PCM audio back."""
     await websocket.accept()
 
-    findings = runs.get(run_id, {}).get("findings", [])
-    session = NovaSonicSession(findings=findings)
+    run_state = run_repo.get(run_id)
+    findings = run_state.get("findings", []) if run_state else []
+    session = NovaSonicSession(findings=findings, region=settings.bedrock_region)
 
     try:
         await session.open()
@@ -209,11 +278,9 @@ async def voice_websocket(websocket: WebSocket, run_id: str):
         await websocket.close(code=1011)
         return
 
-    # Send ready signal to the browser
     await websocket.send_json({"event": "ready"})
 
     async def forward_output():
-        """Stream audio from Nova Sonic → browser."""
         try:
             async for pcm_chunk in session.receive_audio():
                 try:
@@ -229,7 +296,6 @@ async def voice_websocket(websocket: WebSocket, run_id: str):
         while True:
             message = await websocket.receive()
             if "bytes" in message and message["bytes"]:
-                # Binary frame = PCM audio from mic
                 await session.send_audio(message["bytes"])
             elif "text" in message and message["text"]:
                 data = json.loads(message["text"])

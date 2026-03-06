@@ -1,4 +1,5 @@
 import type { Diff, RunStatus } from "../types";
+import { getApiUrl } from "../api";
 
 interface Props {
   diff: Diff | null;
@@ -33,7 +34,7 @@ export function DiffPanel({ diff, status, runId, onApprove, verifyResult }: Prop
     );
   }
 
-  const screenshotBase = `http://localhost:8000/runs/${runId}/screenshots`;
+  const screenshotBase = runId ? `${getApiUrl()}/runs/${runId}/screenshots` : "";
   const beforeScreenshot = runId ? `${screenshotBase}/page_load.png` : null;
   const afterScreenshot = runId && diff.after_screenshot
     ? `${screenshotBase}/${diff.after_screenshot}`

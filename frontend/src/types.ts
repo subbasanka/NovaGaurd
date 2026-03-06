@@ -7,6 +7,12 @@ export interface AuditEvent {
   data: Record<string, unknown>;
 }
 
+/** run_failed event payload */
+export interface RunFailedData {
+  error: string;
+  stage?: string;
+}
+
 export interface Finding {
   id: string;
   title: string;
@@ -35,3 +41,13 @@ export type RunStatus =
   | "verifying"
   | "complete"
   | "failed";
+
+/** API response for POST /runs/start */
+export interface StartRunResponse {
+  run_id: string;
+}
+
+/** API error response (4xx, 5xx) */
+export interface ApiErrorResponse {
+  detail: string;
+}

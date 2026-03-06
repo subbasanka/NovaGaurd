@@ -236,17 +236,17 @@ class NovaSonicSession:
                         pcm = base64.b64decode(b64_audio)
                         await self._output_queue.put(pcm)
                         audio_count += 1
-                        if audio_count <= 3:
+                        if audio_count <= 5:
                             logger.info("voice: received audio chunk %d (%d bytes)", audio_count, len(pcm))
 
                 # Content end for the response
                 elif "contentEnd" in event:
                     pass  # response turn ended — user can keep talking
                 else:
-                    # Log unknown event types once to help debug
+                    # Log unknown event types to help debug
                     keys = list(event.keys()) if isinstance(event, dict) else []
                     if keys and "audioOutput" not in keys and "contentEnd" not in keys:
-                        logger.debug("voice: received event keys: %s", keys)
+                        logger.info("voice: received event keys: %s", keys)
 
         except asyncio.CancelledError:
             pass
@@ -265,7 +265,10 @@ class NovaSonicSession:
                         "maxTokens": 1024,
                         "topP": 0.9,
                         "temperature": 0.7,
-                    }
+                    },
+                    "turnDetectionConfiguration": {
+                        "endpointingSensitivity": "MEDIUM",
+                    },
                 }
             }
         }
@@ -283,6 +286,7 @@ class NovaSonicSession:
                         "channelCount": 1,
                         "voiceId": "tiffany",
                         "encoding": "base64",
+                        "audioType": "SPEECH",
                     },
                 }
             }

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import type { AuditEvent, Diff, Finding, RunStatus } from "../types";
+import { getApiUrl, getWsUrl } from "../api";
 
 export interface AuditState {
   events: AuditEvent[];
@@ -8,6 +9,8 @@ export interface AuditState {
   status: RunStatus;
   verifyResult: { passed: boolean; details: string } | null;
   summary: { total: number; fixed: number; verified: number } | null;
+  runError: string | null;
+  clearRunError: () => void;
 }
 
 function deriveStateFromEvent(
@@ -17,6 +20,7 @@ function deriveStateFromEvent(
   setDiffs: React.Dispatch<React.SetStateAction<Diff[]>>,
   setVerifyResult: React.Dispatch<React.SetStateAction<AuditState["verifyResult"]>>,
   setSummary: React.Dispatch<React.SetStateAction<AuditState["summary"]>>,
+  setRunError: React.Dispatch<React.SetStateAction<string | null>>,
 ) {
   switch (event.event) {
     case "run_started":
@@ -67,6 +71,7 @@ function deriveStateFromEvent(
       break;
     case "run_failed":
       setStatus("failed");
+      setRunError((event.data?.error as string) ?? "Audit failed");
       break;
   }
 }
@@ -78,6 +83,7 @@ export function useAuditWebSocket(runId: string | null, onRunInvalid?: () => voi
   const [status, setStatus] = useState<RunStatus>("idle");
   const [verifyResult, setVerifyResult] = useState<AuditState["verifyResult"]>(null);
   const [summary, setSummary] = useState<AuditState["summary"]>(null);
+  const [runError, setRunError] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
 
   const replayEvents = useCallback((pastEvents: AuditEvent[]) => {
@@ -86,8 +92,9 @@ export function useAuditWebSocket(runId: string | null, onRunInvalid?: () => voi
     setDiffs([]);
     setVerifyResult(null);
     setSummary(null);
+    setRunError(null);
     for (const ev of pastEvents) {
-      deriveStateFromEvent(ev, setStatus, setFindings, setDiffs, setVerifyResult, setSummary);
+      deriveStateFromEvent(ev, setStatus, setFindings, setDiffs, setVerifyResult, setSummary, setRunError);
     }
   }, []);
 
@@ -100,13 +107,14 @@ export function useAuditWebSocket(runId: string | null, onRunInvalid?: () => voi
     setStatus("crawling");
     setVerifyResult(null);
     setSummary(null);
+    setRunError(null);
 
     let cancelled = false;
 
     async function connectOrRestore() {
       // Try to fetch existing run state (handles refresh + already-completed runs)
       try {
-        const res = await fetch(`http://localhost:8000/runs/${runId}`);
+        const res = await fetch(`${getApiUrl()}/runs/${runId}`);
         if (res.ok) {
           const data = await res.json();
           if (!cancelled && data.events?.length > 0) {
@@ -129,7 +137,7 @@ export function useAuditWebSocket(runId: string | null, onRunInvalid?: () => voi
 
       if (cancelled) return;
 
-      const ws = new WebSocket(`ws://localhost:8000/ws/${runId}`);
+      const ws = new WebSocket(getWsUrl(`/ws/${runId}`));
       wsRef.current = ws;
 
       ws.onmessage = (msg) => {
@@ -148,7 +156,7 @@ export function useAuditWebSocket(runId: string | null, onRunInvalid?: () => voi
           return [...prev, parsed];
         });
 
-        deriveStateFromEvent(parsed, setStatus, setFindings, setDiffs, setVerifyResult, setSummary);
+        deriveStateFromEvent(parsed, setStatus, setFindings, setDiffs, setVerifyResult, setSummary, setRunError);
       };
 
       ws.onerror = () => {
@@ -167,5 +175,7 @@ export function useAuditWebSocket(runId: string | null, onRunInvalid?: () => voi
     };
   }, [runId, replayEvents, onRunInvalid]);
 
-  return { events, findings, diffs, status, verifyResult, summary };
+  const clearRunError = useCallback(() => setRunError(null), []);
+
+  return { events, findings, diffs, status, verifyResult, summary, runError, clearRunError };
 }

@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import type { AuditEvent } from "../types";
+import { getApiUrl } from "../api";
 
 interface Props {
   events: AuditEvent[];
@@ -86,7 +87,7 @@ export function Timeline({ events, runId }: Props) {
           <div className="flex-shrink-0 w-10 h-10 flex items-center justify-center rounded bg-gray-50 text-lg">
             {ev.event === "crawl_step" && ev.data.screenshot_path ? (
               <img
-                src={`http://localhost:8000/runs/${ev.run_id}/screenshots/${ev.data.screenshot_path}`}
+                src={`${getApiUrl()}/runs/${ev.run_id}/screenshots/${ev.data.screenshot_path}`}
                 alt="crawl screenshot"
                 className="w-10 h-10 object-cover rounded"
               />

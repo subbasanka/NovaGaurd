@@ -1,0 +1,32 @@
+# NovaGuard Environment Variables
+# Copy to .env and adjust as needed.
+
+# -----------------------------------------------------------------------------
+# Backend
+# -----------------------------------------------------------------------------
+
+# Backend base URL (for error messages, WebSocket URLs)
+# API_BASE_URL=http://localhost:8000
+
+# CORS allowed origins (comma-separated)
+# CORS_ORIGINS=http://localhost:5173,http://localhost:8080
+
+# AWS Bedrock
+# BEDROCK_REGION=us-east-1
+# NOVA_MODEL_ID=amazon.nova-lite-v1:0
+
+# Test site port (for apply/verify)
+# TEST_SITE_PORT=8080
+
+# Use mock pipeline instead of real Nova Act/Bedrock (1 = enabled)
+# MOCK_MODE=0
+
+# If true, /ready will attempt a minimal Bedrock call to verify connectivity
+# READY_CHECK_BEDROCK=false
+
+# -----------------------------------------------------------------------------
+# Frontend (Vite)
+# -----------------------------------------------------------------------------
+
+# API base URL (used for fetch and WebSocket origin)
+# VITE_API_URL=http://localhost:8000
