@@ -95,11 +95,17 @@ class NovaSonicSession:
         self._receive_task: asyncio.Task | None = None
         self._is_open = False
         self._text_sent = False
+        self._close_signalled = False
 
     # -- public API ----------------------------------------------------------
 
-    async def open(self) -> None:
-        """Open the bidirectional stream and send initialization events."""
+    async def open(self, timeout: float = 15.0) -> None:
+        """Open the bidirectional stream and send initialization events.
+
+        Args:
+            timeout: Maximum seconds to wait for Bedrock stream to open.
+                     Prevents indefinite hangs on cold starts or throttling.
+        """
         try:
             from aws_sdk_bedrock_runtime.client import (  # noqa: PLC0415
                 BedrockRuntimeClient,
@@ -132,9 +138,17 @@ class NovaSonicSession:
         )
 
         client = BedrockRuntimeClient(config=config)
-        self._stream = await client.invoke_model_with_bidirectional_stream(
-            InvokeModelWithBidirectionalStreamOperationInput(model_id=MODEL_ID)
-        )
+        try:
+            self._stream = await asyncio.wait_for(
+                client.invoke_model_with_bidirectional_stream(
+                    InvokeModelWithBidirectionalStreamOperationInput(model_id=MODEL_ID)
+                ),
+                timeout=timeout,
+            )
+        except asyncio.TimeoutError:
+            raise RuntimeError(
+                f"Nova Sonic connection timed out after {timeout}s — Bedrock may be throttling or cold-starting. Please retry."
+            )
 
         # Send initialization sequence
         await self._send_event(self._session_start_event())
@@ -181,6 +195,8 @@ class NovaSonicSession:
     async def close(self) -> None:
         """Gracefully close the session."""
         if not self._is_open:
+            # Even if not open, signal any waiting consumers to stop
+            await self._output_queue.put(None)
             return
         self._is_open = False
 
@@ -204,8 +220,11 @@ class NovaSonicSession:
             except (asyncio.CancelledError, Exception):
                 pass
 
-        # Signal consumer to stop
-        await self._output_queue.put(None)
+        # Signal consumer to stop (receive_loop's finally also puts None,
+        # but we guard with _close_signalled to avoid double-None)
+        if not self._close_signalled:
+            self._close_signalled = True
+            await self._output_queue.put(None)
         logger.info("voice: Nova Sonic session closed")
 
     # -- background receiver -------------------------------------------------
@@ -236,24 +255,26 @@ class NovaSonicSession:
                         pcm = base64.b64decode(b64_audio)
                         await self._output_queue.put(pcm)
                         audio_count += 1
-                        if audio_count <= 5:
+                        if audio_count <= 3:
                             logger.info("voice: received audio chunk %d (%d bytes)", audio_count, len(pcm))
 
                 # Content end for the response
                 elif "contentEnd" in event:
                     pass  # response turn ended — user can keep talking
                 else:
-                    # Log unknown event types to help debug
+                    # Log unknown event types once to help debug
                     keys = list(event.keys()) if isinstance(event, dict) else []
                     if keys and "audioOutput" not in keys and "contentEnd" not in keys:
-                        logger.info("voice: received event keys: %s", keys)
+                        logger.debug("voice: received event keys: %s", keys)
 
         except asyncio.CancelledError:
             pass
         except Exception as exc:
             logger.error("voice: receive loop error: %s", exc, exc_info=True)
         finally:
-            await self._output_queue.put(None)
+            if not self._close_signalled:
+                self._close_signalled = True
+                await self._output_queue.put(None)
 
     # -- event builders ------------------------------------------------------
 
@@ -265,10 +286,7 @@ class NovaSonicSession:
                         "maxTokens": 1024,
                         "topP": 0.9,
                         "temperature": 0.7,
-                    },
-                    "turnDetectionConfiguration": {
-                        "endpointingSensitivity": "MEDIUM",
-                    },
+                    }
                 }
             }
         }
@@ -286,7 +304,6 @@ class NovaSonicSession:
                         "channelCount": 1,
                         "voiceId": "tiffany",
                         "encoding": "base64",
-                        "audioType": "SPEECH",
                     },
                 }
             }
