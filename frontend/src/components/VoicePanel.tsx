@@ -1,5 +1,8 @@
 import { useState, useRef, useCallback, useEffect } from "react";
+import { motion } from "framer-motion";
+import { Mic, Square } from "lucide-react";
 import type { Finding } from "../types";
+import { cn } from "../lib/cn";
 
 interface Props {
   runId: string | null;
@@ -12,23 +15,11 @@ const TARGET_SAMPLE_RATE = 16000;
 const MAX_RETRIES = 2;
 const RETRY_DELAY_MS = 1500;
 
-/**
- * Real-time speech-to-speech panel.
- *
- * Press the mic button to toggle streaming. Browser captures 16 kHz mono PCM
- * from the microphone, streams it to the backend WebSocket, and plays 24 kHz
- * PCM audio responses from Nova 2 Sonic in real-time.
- *
- * Fixes over previous version:
- *  - No handler-replacement race condition (single onmessage handler)
- *  - Auto-retry on transient failures (up to MAX_RETRIES)
- *  - Playback context created once and reused
- */
 export function VoicePanel({ runId, findings }: Props) {
   const [isStreaming, setIsStreaming] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [status, setStatus] = useState<string>("idle"); // idle | connecting | listening | speaking
+  const [status, setStatus] = useState<string>("idle");
   const [retryCount, setRetryCount] = useState(0);
 
   const wsRef = useRef<WebSocket | null>(null);
@@ -37,120 +28,85 @@ export function VoicePanel({ runId, findings }: Props) {
   const workletNodeRef = useRef<AudioWorkletNode | ScriptProcessorNode | null>(null);
   const playbackCtxRef = useRef<AudioContext | null>(null);
   const nextPlayTimeRef = useRef<number>(0);
-  // Guard to prevent cleanup from triggering during a retry attempt
   const isRetryingRef = useRef(false);
+  const startStreamingRef = useRef<() => void>(() => {});
 
-  // Cleanup everything
   const cleanup = useCallback(() => {
-    // Stop mic
     if (mediaStreamRef.current) {
       mediaStreamRef.current.getTracks().forEach((t) => t.stop());
       mediaStreamRef.current = null;
     }
-
-    // Close audio contexts
     if (audioContextRef.current && audioContextRef.current.state !== "closed") {
       audioContextRef.current.close().catch(() => {});
       audioContextRef.current = null;
     }
-
-    // Close playback context
     if (playbackCtxRef.current && playbackCtxRef.current.state !== "closed") {
       playbackCtxRef.current.close().catch(() => {});
       playbackCtxRef.current = null;
     }
-
     workletNodeRef.current = null;
-
-    // Close WebSocket
     if (wsRef.current) {
       try {
         wsRef.current.send(JSON.stringify({ event: "stop" }));
       } catch {
-        // ignore — socket may already be closed
+        /* ignore */
       }
       wsRef.current.close();
       wsRef.current = null;
     }
-
     setIsStreaming(false);
     setIsConnecting(false);
     setStatus("idle");
   }, []);
 
-  // Cleanup on unmount
   useEffect(() => {
     return cleanup;
   }, [cleanup]);
 
-  /**
-   * Play a PCM audio chunk through the Web Audio API.
-   * Creates the playback AudioContext lazily on first call.
-   */
   const playAudioChunk = useCallback(async (pcmData: ArrayBuffer) => {
-    // Lazily create playback context (must be after user gesture)
     if (!playbackCtxRef.current || playbackCtxRef.current.state === "closed") {
       const ctx = new AudioContext({ sampleRate: 24000 });
       playbackCtxRef.current = ctx;
       nextPlayTimeRef.current = ctx.currentTime;
     }
-
     const pCtx = playbackCtxRef.current;
-
-    // Resume if suspended (browser autoplay policy)
     if (pCtx.state === "suspended") {
       await pCtx.resume();
     }
-
-    // 24 kHz 16-bit mono PCM → Float32 for Web Audio
     const int16 = new Int16Array(pcmData);
     const float32 = new Float32Array(int16.length);
     for (let i = 0; i < int16.length; i++) {
       float32[i] = int16[i] / 32768;
     }
-
     const buffer = pCtx.createBuffer(1, float32.length, 24000);
     buffer.getChannelData(0).set(float32);
-
     const bufferSource = pCtx.createBufferSource();
     bufferSource.buffer = buffer;
     bufferSource.connect(pCtx.destination);
-
-    // Schedule playback sequentially to avoid gaps
     const now = pCtx.currentTime;
     const startAt = Math.max(now, nextPlayTimeRef.current);
     bufferSource.start(startAt);
     nextPlayTimeRef.current = startAt + buffer.duration;
-
     setStatus("speaking");
   }, []);
 
   const startStreaming = useCallback(async () => {
     if (isStreaming || isConnecting || !runId) return;
-
     setError(null);
     setIsConnecting(true);
     setStatus("connecting");
     setRetryCount(0);
 
     try {
-      // 1. Get mic access
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          sampleRate: 16000,
-          channelCount: 1,
-          echoCancellation: true,
-          noiseSuppression: true,
-        },
+        audio: { sampleRate: 16000, channelCount: 1, echoCancellation: true, noiseSuppression: true },
       });
       mediaStreamRef.current = stream;
 
-      // 2. Connect WebSocket with single unified message handler (no race condition)
       const ws = new WebSocket(`${WS_BASE}/ws/voice/${runId}`);
       ws.binaryType = "arraybuffer";
       wsRef.current = ws;
 
-      // Track whether we've received the "ready" signal
       let readyResolve: () => void;
       let readyReject: (err: Error) => void;
       const readyPromise = new Promise<void>((resolve, reject) => {
@@ -159,17 +115,14 @@ export function VoicePanel({ runId, findings }: Props) {
       });
 
       const connectionTimeout = setTimeout(() => {
-        readyReject(new Error("Voice connection timed out — server may be starting up. Please retry."));
+        readyReject(new Error("Voice connection timed out \u2014 server may be starting up. Please retry."));
       }, 15000);
 
       let isReady = false;
 
-      // Single unified message handler — handles both "ready" and audio/error
-      // This eliminates the race condition from replacing onmessage handlers
       ws.onmessage = async (ev) => {
         if (ev.data instanceof ArrayBuffer && ev.data.byteLength > 0) {
-          // Binary frame = audio from Nova Sonic
-          if (!isReady) return; // ignore audio before ready (shouldn't happen, but guard)
+          if (!isReady) return;
           await playAudioChunk(ev.data);
         } else if (typeof ev.data === "string") {
           try {
@@ -187,7 +140,7 @@ export function VoicePanel({ runId, findings }: Props) {
               }
             }
           } catch {
-            // Malformed JSON — ignore
+            /* ignore */
           }
         }
       };
@@ -195,7 +148,7 @@ export function VoicePanel({ runId, findings }: Props) {
       ws.onerror = () => {
         if (!isReady) {
           clearTimeout(connectionTimeout);
-          readyReject(new Error("WebSocket connection failed — is the backend running?"));
+          readyReject(new Error("WebSocket connection failed \u2014 is the backend running?"));
         } else {
           setError("Voice connection lost.");
           cleanup();
@@ -205,37 +158,30 @@ export function VoicePanel({ runId, findings }: Props) {
       ws.onclose = (ev) => {
         if (!isReady) {
           clearTimeout(connectionTimeout);
-          readyReject(new Error(
-            ev.code === 4004
-              ? "Run not found — the server may have restarted. Please start a new audit."
-              : "Voice connection closed unexpectedly."
-          ));
+          readyReject(
+            new Error(
+              ev.code === 4004
+                ? "Run not found \u2014 the server may have restarted. Please start a new audit."
+                : "Voice connection closed unexpectedly."
+            )
+          );
         } else if (!isRetryingRef.current) {
           cleanup();
         }
       };
 
-      // Wait for "ready" signal from server
       await readyPromise;
 
-      // 3. Set up audio capture
       const audioCtx = new AudioContext();
       audioContextRef.current = audioCtx;
-
       const source = audioCtx.createMediaStreamSource(stream);
-
-      // ScriptProcessor: 4096 samples per buffer, mono in, mono out
-      // TODO: Migrate to AudioWorkletNode when we drop support for older browsers
       const processor = audioCtx.createScriptProcessor(4096, 1, 1);
       workletNodeRef.current = processor;
 
       processor.onaudioprocess = (e) => {
         if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
-
         const float32 = e.inputBuffer.getChannelData(0);
         const inputRate = e.inputBuffer.sampleRate;
-
-        // Resample to 16 kHz if needed (browsers often use 48 kHz)
         let toSend: Float32Array;
         if (Math.abs(inputRate - TARGET_SAMPLE_RATE) < 100) {
           toSend = float32;
@@ -251,8 +197,6 @@ export function VoicePanel({ runId, findings }: Props) {
             toSend[i] = float32[lo] * (1 - frac) + float32[hi] * frac;
           }
         }
-
-        // Convert Float32 [-1,1] to Int16 PCM
         const int16 = new Int16Array(toSend.length);
         for (let i = 0; i < toSend.length; i++) {
           const s = Math.max(-1, Math.min(1, toSend[i]));
@@ -262,23 +206,20 @@ export function VoicePanel({ runId, findings }: Props) {
       };
 
       source.connect(processor);
-      processor.connect(audioCtx.destination); // needed for ScriptProcessor to fire
-
+      processor.connect(audioCtx.destination);
       setIsStreaming(true);
       setIsConnecting(false);
       setStatus("listening");
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Failed to start voice";
       cleanup();
-
-      // Auto-retry on transient failures (timeout, connection refused)
       if (retryCount < MAX_RETRIES && isTransientError(msg)) {
         setRetryCount((prev) => prev + 1);
-        setError(`${msg} — retrying (${retryCount + 1}/${MAX_RETRIES})…`);
+        setError(`${msg} \u2014 retrying (${retryCount + 1}/${MAX_RETRIES})...`);
         isRetryingRef.current = true;
         setTimeout(() => {
           isRetryingRef.current = false;
-          startStreaming();
+          startStreamingRef.current();
         }, RETRY_DELAY_MS);
       } else {
         setError(msg);
@@ -286,13 +227,18 @@ export function VoicePanel({ runId, findings }: Props) {
     }
   }, [isStreaming, isConnecting, runId, cleanup, playAudioChunk, retryCount]);
 
+  // Keep ref in sync so retry setTimeout calls the latest version
+  useEffect(() => {
+    startStreamingRef.current = startStreaming;
+  }, [startStreaming]);
+
   const stopStreaming = useCallback(() => {
     cleanup();
   }, [cleanup]);
 
   if (!runId || findings.length === 0) {
     return (
-      <div className="flex items-center justify-center h-full text-gray-400 text-sm p-4 text-center">
+      <div className="flex items-center justify-center h-full text-gray-500 text-sm p-4 text-center">
         Complete an audit to talk with Nova 2 Sonic about the findings.
       </div>
     );
@@ -300,68 +246,73 @@ export function VoicePanel({ runId, findings }: Props) {
 
   const statusLabel = {
     idle: "Ready",
-    connecting: "Connecting…",
-    listening: "Listening…",
-    speaking: "Nova is speaking…",
+    connecting: "Connecting...",
+    listening: "Listening...",
+    speaking: "Nova is speaking...",
   }[status];
 
   return (
     <div className="flex items-center gap-4 p-4">
-      {/* Mic button */}
-      <button
+      {/* Voice orb button */}
+      <motion.button
         onClick={isStreaming ? stopStreaming : startStreaming}
         disabled={isConnecting}
-        className={`
-          relative flex items-center justify-center w-12 h-12 rounded-full
-          transition-all duration-200 shadow-md
-          ${
-            isStreaming
-              ? "bg-red-500 hover:bg-red-600 text-white"
-              : isConnecting
-              ? "bg-gray-300 text-gray-500 cursor-wait"
-              : "bg-indigo-600 hover:bg-indigo-700 text-white"
-          }
-        `}
-        title={isStreaming ? "Stop" : "Start talking"}
+        whileHover={{ scale: 1.05 }}
+        whileTap={{ scale: 0.95 }}
+        className={cn(
+          "relative flex items-center justify-center w-12 h-12 rounded-full transition-all duration-200",
+          isStreaming
+            ? "bg-red-500 hover:bg-red-400 text-white shadow-lg shadow-red-500/30"
+            : isConnecting
+              ? "bg-gray-600 text-gray-400 cursor-wait"
+              : "bg-nova-600 hover:bg-nova-500 text-white shadow-lg shadow-nova-600/30"
+        )}
+        aria-label={isStreaming ? "Stop voice recording" : "Start voice conversation with Nova"}
       >
         {isStreaming ? (
-          // Stop icon
-          <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" viewBox="0 0 20 20" fill="currentColor">
-            <rect x="5" y="5" width="10" height="10" rx="1" />
-          </svg>
+          <Square className="w-4 h-4" aria-hidden="true" />
         ) : (
-          // Mic icon
-          <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" viewBox="0 0 20 20" fill="currentColor">
-            <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z" clipRule="evenodd" />
-          </svg>
+          <Mic className="w-5 h-5" aria-hidden="true" />
         )}
 
         {/* Pulse animation when streaming */}
         {isStreaming && (
-          <span className="absolute inset-0 rounded-full animate-ping bg-red-400 opacity-30" />
+          <span className="absolute inset-0 rounded-full animate-ping bg-red-400 opacity-20" aria-hidden="true" />
         )}
-      </button>
 
-      {/* Status + description */}
+        {/* Glow ring when speaking */}
+        {status === "speaking" && (
+          <span
+            className="absolute -inset-1 rounded-full border-2 border-nova-400 animate-pulse-slow opacity-60"
+            aria-hidden="true"
+          />
+        )}
+      </motion.button>
+
+      {/* Status text */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
           <span
-            className={`inline-block w-2 h-2 rounded-full ${
-              isStreaming ? "bg-green-500 animate-pulse" : "bg-gray-300"
-            }`}
+            className={cn(
+              "inline-block w-2 h-2 rounded-full",
+              isStreaming ? "bg-emerald-400 animate-pulse" : "bg-gray-600"
+            )}
+            aria-hidden="true"
           />
-          <span className="text-sm font-medium text-gray-700">{statusLabel}</span>
+          <span className="text-sm font-medium text-gray-300" role="status" aria-live="polite">
+            {statusLabel}
+          </span>
         </div>
-        <p className="text-xs text-gray-400 mt-0.5 truncate">
+        <p className="text-xs text-gray-500 mt-0.5 truncate">
           {isStreaming
-            ? "Ask a question, then pause — Nova responds when you stop speaking"
+            ? "Ask a question, then pause \u2014 Nova responds when you stop speaking"
             : "Click the mic to start a speech-to-speech conversation"}
         </p>
       </div>
 
       {/* Error */}
       {error && (
-        <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded px-3 py-1.5 max-w-xs">
+        <p className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-1.5 max-w-xs" role="alert">
           {error}
         </p>
       )}
@@ -369,7 +320,6 @@ export function VoicePanel({ runId, findings }: Props) {
   );
 }
 
-/** Check if an error message suggests a transient/retryable failure. */
 function isTransientError(msg: string): boolean {
   const transient = ["timed out", "connection failed", "closed unexpectedly", "cold-starting"];
   return transient.some((pattern) => msg.toLowerCase().includes(pattern));

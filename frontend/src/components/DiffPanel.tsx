@@ -1,5 +1,8 @@
+import { Loader2, CheckCircle, XCircle, ShieldCheck } from "lucide-react";
+import { motion } from "framer-motion";
 import type { Diff, RunStatus } from "../types";
 import { getApiUrl } from "../api";
+import { cn } from "../lib/cn";
 
 interface Props {
   diff: Diff | null;
@@ -11,24 +14,27 @@ interface Props {
 
 export function DiffPanel({ diff, status, runId, onApprove, verifyResult }: Props) {
   if (!diff) {
-    // Show approve/skip button even with no diffs so the pipeline isn't stuck
     if (status === "awaiting_approval") {
       return (
-        <div className="flex flex-col items-center justify-center h-full gap-4 p-4">
-          <p className="text-gray-500 text-sm text-center">
+        <div className="flex flex-col items-center justify-center h-full gap-4 p-6">
+          <p className="text-gray-400 text-sm text-center">
             No fixes to review. You can approve to continue the pipeline.
           </p>
           <button
             onClick={onApprove}
-            className="px-5 py-2 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 transition-colors shadow"
+            className={cn(
+              "flex items-center gap-2 px-6 py-2.5 rounded-lg font-semibold transition-all",
+              "bg-emerald-600 text-white hover:bg-emerald-500 shadow-lg"
+            )}
           >
-            Approve &amp; Continue
+            <ShieldCheck className="w-4 h-4" aria-hidden="true" />
+            Approve & Continue
           </button>
         </div>
       );
     }
     return (
-      <div className="flex items-center justify-center h-full text-gray-400 text-sm p-4">
+      <div className="flex items-center justify-center h-full text-gray-500 text-sm p-4">
         Select "Review Fix" on a finding to see the diff.
       </div>
     );
@@ -36,27 +42,32 @@ export function DiffPanel({ diff, status, runId, onApprove, verifyResult }: Prop
 
   const screenshotBase = runId ? `${getApiUrl()}/runs/${runId}/screenshots` : "";
   const beforeScreenshot = runId ? `${screenshotBase}/page_load.png` : null;
-  const afterScreenshot = runId && diff.after_screenshot
-    ? `${screenshotBase}/${diff.after_screenshot}`
-    : null;
+  const afterScreenshot =
+    runId && diff.after_screenshot ? `${screenshotBase}/${diff.after_screenshot}` : null;
 
   return (
-    <div className="flex flex-col gap-4 p-4 overflow-y-auto">
-      <h2 className="text-sm font-semibold text-gray-600 uppercase tracking-wide">
-        Fix Diff — Finding {diff.finding_id}
-      </h2>
+    <div className="flex flex-col gap-5 p-5 overflow-y-auto">
+      <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">
+        Fix Diff &mdash; Finding {diff.finding_id}
+      </h3>
 
       {/* HTML Before / After */}
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <p className="text-xs font-semibold text-red-600 mb-1">Before</p>
-          <pre className="text-xs bg-red-50 border border-red-200 rounded p-3 whitespace-pre-wrap break-all text-gray-800 leading-relaxed">
+          <p className="text-xs font-semibold text-red-400 mb-1.5 uppercase tracking-wide">Before</p>
+          <pre
+            className="text-xs bg-red-500/5 border border-red-500/20 rounded-lg p-3 whitespace-pre-wrap break-all text-gray-300 leading-relaxed font-mono"
+            aria-label="HTML before fix"
+          >
             {diff.before_html}
           </pre>
         </div>
         <div>
-          <p className="text-xs font-semibold text-green-600 mb-1">After</p>
-          <pre className="text-xs bg-green-50 border border-green-200 rounded p-3 whitespace-pre-wrap break-all text-gray-800 leading-relaxed">
+          <p className="text-xs font-semibold text-emerald-400 mb-1.5 uppercase tracking-wide">After</p>
+          <pre
+            className="text-xs bg-emerald-500/5 border border-emerald-500/20 rounded-lg p-3 whitespace-pre-wrap break-all text-gray-300 leading-relaxed font-mono"
+            aria-label="HTML after fix"
+          >
             {diff.after_html}
           </pre>
         </div>
@@ -65,61 +76,69 @@ export function DiffPanel({ diff, status, runId, onApprove, verifyResult }: Prop
       {/* Patch */}
       {diff.patch && (
         <div>
-          <p className="text-xs font-semibold text-gray-500 mb-1">Unified Diff</p>
-          <pre className="text-xs bg-gray-900 text-green-400 rounded p-3 overflow-x-auto whitespace-pre leading-relaxed">
+          <p className="text-xs font-semibold text-gray-500 mb-1.5 uppercase tracking-wide">Unified Diff</p>
+          <pre className="text-xs bg-gray-950 text-emerald-400 rounded-lg p-3 overflow-x-auto whitespace-pre leading-relaxed border border-surface-border font-mono">
             {diff.patch}
           </pre>
         </div>
       )}
 
       {/* Rationale */}
-      <div className="bg-blue-50 border border-blue-200 rounded p-3">
-        <p className="text-xs font-semibold text-blue-700 mb-0.5">Rationale</p>
-        <p className="text-sm text-blue-900">{diff.rationale}</p>
+      <div className="glass rounded-lg p-4 border-nova-500/20">
+        <p className="text-xs font-semibold text-nova-300 mb-1 uppercase tracking-wide">Rationale</p>
+        <p className="text-sm text-gray-300 leading-relaxed">{diff.rationale}</p>
       </div>
 
       {/* Approve button */}
       {status === "awaiting_approval" && (
-        <button
+        <motion.button
+          whileHover={{ scale: 1.02 }}
+          whileTap={{ scale: 0.98 }}
           onClick={onApprove}
-          className="self-start px-5 py-2 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 transition-colors shadow"
+          className={cn(
+            "self-start flex items-center gap-2 px-6 py-2.5 rounded-lg font-semibold transition-all",
+            "bg-emerald-600 text-white hover:bg-emerald-500 shadow-lg shadow-emerald-600/20"
+          )}
         >
-          Approve &amp; Apply Fix
-        </button>
+          <ShieldCheck className="w-4 h-4" aria-hidden="true" />
+          Approve & Apply Fix
+        </motion.button>
       )}
 
       {/* In-progress */}
       {(status === "applying" || status === "verifying") && (
-        <div className="flex items-center gap-2 text-sm text-gray-600">
-          <span className="animate-spin text-lg">⚙️</span>
-          {status === "applying" ? "Applying fix via Nova Act…" : "Verifying fix…"}
+        <div className="flex items-center gap-2.5 text-sm text-gray-400" role="status" aria-live="polite">
+          <Loader2 className="w-5 h-5 animate-spin text-nova-400" aria-hidden="true" />
+          {status === "applying" ? "Applying fix via Nova Act..." : "Verifying fix..."}
         </div>
       )}
 
-      {/* Before / After screenshots — shown once apply_done fires */}
+      {/* Before / After screenshots */}
       {(afterScreenshot || verifyResult) && beforeScreenshot && (
         <div>
-          <p className="text-xs font-semibold text-gray-500 mb-2">Before / After Screenshots</p>
+          <p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">
+            Before / After Screenshots
+          </p>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <p className="text-xs text-red-500 font-medium mb-1">Before</p>
+              <p className="text-xs text-red-400 font-medium mb-1">Before</p>
               <img
                 src={beforeScreenshot}
-                alt="Before fix"
-                className="w-full rounded border border-gray-200 shadow-sm"
+                alt="Screenshot of page before accessibility fix was applied"
+                className="w-full rounded-lg border border-surface-border shadow-md"
               />
             </div>
             <div>
-              <p className="text-xs text-green-600 font-medium mb-1">After</p>
+              <p className="text-xs text-emerald-400 font-medium mb-1">After</p>
               {afterScreenshot ? (
                 <img
                   src={afterScreenshot}
-                  alt="After fix"
-                  className="w-full rounded border border-gray-200 shadow-sm"
+                  alt="Screenshot of page after accessibility fix was applied"
+                  className="w-full rounded-lg border border-surface-border shadow-md"
                 />
               ) : (
-                <div className="w-full h-32 rounded border border-gray-200 bg-gray-50 flex items-center justify-center text-xs text-gray-400">
-                  Waiting for screenshot…
+                <div className="w-full h-32 rounded-lg border border-surface-border bg-surface-raised flex items-center justify-center text-xs text-gray-500">
+                  Waiting for screenshot...
                 </div>
               )}
             </div>
@@ -129,18 +148,29 @@ export function DiffPanel({ diff, status, runId, onApprove, verifyResult }: Prop
 
       {/* Verify result */}
       {verifyResult && (
-        <div
-          className={`rounded-lg p-3 border ${
+        <motion.div
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          className={cn(
+            "rounded-lg p-4 border flex items-start gap-3",
             verifyResult.passed
-              ? "bg-green-50 border-green-300 text-green-800"
-              : "bg-red-50 border-red-300 text-red-800"
-          }`}
+              ? "bg-emerald-500/10 border-emerald-500/30"
+              : "bg-red-500/10 border-red-500/30"
+          )}
+          role="alert"
         >
-          <p className="font-semibold text-sm">
-            {verifyResult.passed ? "✓ Verification Passed" : "✗ Verification Failed"}
-          </p>
-          <p className="text-xs mt-0.5">{verifyResult.details}</p>
-        </div>
+          {verifyResult.passed ? (
+            <CheckCircle className="w-5 h-5 text-emerald-400 flex-shrink-0 mt-0.5" aria-hidden="true" />
+          ) : (
+            <XCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" aria-hidden="true" />
+          )}
+          <div>
+            <p className={cn("font-semibold text-sm", verifyResult.passed ? "text-emerald-300" : "text-red-300")}>
+              {verifyResult.passed ? "Verification Passed" : "Verification Failed"}
+            </p>
+            <p className="text-xs text-gray-400 mt-0.5">{verifyResult.details}</p>
+          </div>
+        </motion.div>
       )}
     </div>
   );

@@ -86,6 +86,16 @@ export function useAuditWebSocket(runId: string | null, onRunInvalid?: () => voi
   const [runError, setRunError] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
 
+  const resetState = useCallback(() => {
+    setEvents([]);
+    setFindings([]);
+    setDiffs([]);
+    setStatus("crawling");
+    setVerifyResult(null);
+    setSummary(null);
+    setRunError(null);
+  }, []);
+
   const replayEvents = useCallback((pastEvents: AuditEvent[]) => {
     setEvents(pastEvents);
     setFindings([]);
@@ -101,17 +111,11 @@ export function useAuditWebSocket(runId: string | null, onRunInvalid?: () => voi
   useEffect(() => {
     if (!runId) return;
 
-    setEvents([]);
-    setFindings([]);
-    setDiffs([]);
-    setStatus("crawling");
-    setVerifyResult(null);
-    setSummary(null);
-    setRunError(null);
-
+    // Reset state at the start of the async flow (inside callback, not synchronous in effect body)
     let cancelled = false;
 
     async function connectOrRestore() {
+      resetState();
       // Try to fetch existing run state (handles refresh + already-completed runs)
       try {
         const res = await fetch(`${getApiUrl()}/runs/${runId}`);
@@ -173,7 +177,7 @@ export function useAuditWebSocket(runId: string | null, onRunInvalid?: () => voi
         wsRef.current = null;
       }
     };
-  }, [runId, replayEvents, onRunInvalid]);
+  }, [runId, replayEvents, resetState, onRunInvalid]);
 
   const clearRunError = useCallback(() => setRunError(null), []);
 
