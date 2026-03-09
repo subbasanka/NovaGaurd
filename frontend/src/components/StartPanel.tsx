@@ -1,3 +1,5 @@
+import { Loader2, Shield, Play } from "lucide-react";
+import { cn } from "../lib/cn";
 import type { RunStatus } from "../types";
 
 interface Props {
@@ -8,25 +10,25 @@ interface Props {
 }
 
 const STATUS_STYLES: Record<RunStatus, string> = {
-  idle: "bg-gray-200 text-gray-700",
-  crawling: "bg-blue-100 text-blue-800",
-  analyzing: "bg-purple-100 text-purple-800",
-  fixing: "bg-yellow-100 text-yellow-800",
-  awaiting_approval: "bg-orange-100 text-orange-800",
-  applying: "bg-indigo-100 text-indigo-800",
-  verifying: "bg-cyan-100 text-cyan-800",
-  complete: "bg-green-100 text-green-800",
-  failed: "bg-red-100 text-red-800",
+  idle: "bg-gray-700/50 text-gray-400 border-gray-600",
+  crawling: "bg-blue-500/15 text-blue-400 border-blue-500/30",
+  analyzing: "bg-purple-500/15 text-purple-400 border-purple-500/30",
+  fixing: "bg-amber-500/15 text-amber-400 border-amber-500/30",
+  awaiting_approval: "bg-orange-500/15 text-orange-400 border-orange-500/30",
+  applying: "bg-indigo-500/15 text-indigo-400 border-indigo-500/30",
+  verifying: "bg-cyan-500/15 text-cyan-400 border-cyan-500/30",
+  complete: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
+  failed: "bg-red-500/15 text-red-400 border-red-500/30",
 };
 
 const STATUS_LABELS: Record<RunStatus, string> = {
   idle: "Idle",
-  crawling: "Crawling…",
-  analyzing: "Analyzing…",
-  fixing: "Generating Fix…",
+  crawling: "Crawling...",
+  analyzing: "Analyzing...",
+  fixing: "Generating Fix...",
   awaiting_approval: "Awaiting Approval",
-  applying: "Applying Fix…",
-  verifying: "Verifying…",
+  applying: "Applying Fix...",
+  verifying: "Verifying...",
   complete: "Complete",
   failed: "Failed",
 };
@@ -35,27 +37,61 @@ export function StartPanel({ targetUrl, onUrlChange, onStartAudit, status }: Pro
   const isActive = status !== "idle" && status !== "complete" && status !== "failed";
 
   return (
-    <div className="flex items-center gap-3 p-4 bg-white border-b border-gray-200 shadow-sm">
-      <span className="text-xl font-bold text-gray-900 whitespace-nowrap">NovaGuard</span>
+    <div className="flex items-center gap-4 px-6 py-3 bg-surface-raised border-b border-surface-border">
+      {/* Logo */}
+      <div className="flex items-center gap-2 flex-shrink-0">
+        <Shield className="w-6 h-6 text-nova-400" aria-hidden="true" />
+        <span className="text-lg font-bold text-gray-100 tracking-tight">NovaGuard</span>
+      </div>
 
+      {/* URL input */}
+      <label className="sr-only" htmlFor="audit-url">
+        Target URL
+      </label>
       <input
+        id="audit-url"
         type="url"
         value={targetUrl}
         onChange={(e) => onUrlChange(e.target.value)}
         placeholder="https://example.com"
         disabled={isActive}
-        className="flex-1 px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
+        className={cn(
+          "flex-1 px-4 py-2 rounded-lg text-sm bg-surface border border-surface-border text-gray-200",
+          "placeholder:text-gray-500",
+          "focus:outline-none focus:ring-2 focus:ring-nova-500/50 focus:border-nova-500/50",
+          "disabled:opacity-50 disabled:cursor-not-allowed",
+          "transition-colors"
+        )}
       />
 
+      {/* Start button */}
       <button
         onClick={onStartAudit}
         disabled={isActive || !targetUrl.trim()}
-        className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        className={cn(
+          "flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-semibold transition-all",
+          "bg-nova-600 text-white hover:bg-nova-500 shadow-glow-sm hover:shadow-glow",
+          "disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none disabled:hover:bg-nova-600"
+        )}
+        aria-label="Start accessibility audit"
       >
+        {isActive ? (
+          <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
+        ) : (
+          <Play className="w-4 h-4" aria-hidden="true" />
+        )}
         Start Audit
       </button>
 
-      <span className={`px-3 py-1 rounded-full text-xs font-semibold whitespace-nowrap ${STATUS_STYLES[status]}`}>
+      {/* Status badge */}
+      <span
+        className={cn(
+          "px-3 py-1 rounded-full text-xs font-semibold border whitespace-nowrap",
+          STATUS_STYLES[status]
+        )}
+        role="status"
+        aria-live="polite"
+      >
         {STATUS_LABELS[status]}
       </span>
     </div>
