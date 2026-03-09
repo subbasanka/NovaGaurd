@@ -1,3 +1,52 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  *,
+  *::before,
+  *::after {
+    scrollbar-width: thin;
+    scrollbar-color: #363c58 transparent;
+  }
+
+  :focus-visible {
+    outline: 2px solid #818cf8;
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* Skip navigation link */
+  .skip-nav {
+    position: absolute;
+    top: -100%;
+    left: 1rem;
+    z-index: 100;
+    padding: 0.5rem 1rem;
+    background: #4f46e5;
+    color: white;
+    border-radius: 0 0 0.5rem 0.5rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    text-decoration: none;
+    transition: top 0.2s;
+  }
+
+  .skip-nav:focus {
+    top: 0;
+  }
+}
+
+@layer components {
+  .glass {
+    background: rgba(22, 25, 37, 0.7);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(42, 47, 69, 0.6);
+  }
+
+  .glass-light {
+    background: rgba(28, 32, 51, 0.5);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(42, 47, 69, 0.4);
+  }
+}
