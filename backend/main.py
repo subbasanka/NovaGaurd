@@ -16,6 +16,8 @@ from mock_pipeline import mock_pipeline
 from graph import build_graph
 from voice import NovaSonicSession
 
+# Ensure all loggers output to console (uvicorn suppresses app-level logs by default)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="NovaGuard API")
