@@ -15,6 +15,45 @@ const TARGET_SAMPLE_RATE = 16000;
 const MAX_RETRIES = 2;
 const RETRY_DELAY_MS = 1500;
 
+const WORKLET_CODE = `
+class ResampleProcessor extends AudioWorkletProcessor {
+  constructor(options) {
+    super();
+    this.targetRate = options.processorOptions.targetRate || 16000;
+  }
+  process(inputs, outputs, parameters) {
+    const input = inputs[0];
+    if (input && input.length > 0 && input[0].length > 0) {
+      const float32 = input[0];
+      const inputRate = sampleRate;
+      let toSend;
+      if (Math.abs(inputRate - this.targetRate) < 100) {
+        toSend = float32;
+      } else {
+        const ratio = this.targetRate / inputRate;
+        const outLen = Math.floor(float32.length * ratio);
+        toSend = new Float32Array(outLen);
+        for (let i = 0; i < outLen; i++) {
+          const srcIdx = i / ratio;
+          const lo = Math.floor(srcIdx);
+          const hi = Math.min(lo + 1, float32.length - 1);
+          const frac = srcIdx - lo;
+          toSend[i] = float32[lo] * (1 - frac) + float32[hi] * frac;
+        }
+      }
+      const int16 = new Int16Array(toSend.length);
+      for (let i = 0; i < toSend.length; i++) {
+        const s = Math.max(-1, Math.min(1, toSend[i]));
+        int16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+      }
+      this.port.postMessage(int16.buffer, [int16.buffer]);
+    }
+    return true;
+  }
+}
+registerProcessor('resample-processor', ResampleProcessor);
+`;
+
 export function VoicePanel({ runId, findings }: Props) {
   const [isStreaming, setIsStreaming] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
@@ -172,41 +211,28 @@ export function VoicePanel({ runId, findings }: Props) {
 
       await readyPromise;
 
-      const audioCtx = new AudioContext();
+      const audioCtx = new AudioContext({ sampleRate: TARGET_SAMPLE_RATE });
       audioContextRef.current = audioCtx;
       const source = audioCtx.createMediaStreamSource(stream);
-      const processor = audioCtx.createScriptProcessor(4096, 1, 1);
+
+      const blob = new Blob([WORKLET_CODE], { type: "application/javascript" });
+      const url = URL.createObjectURL(blob);
+      await audioCtx.audioWorklet.addModule(url);
+      
+      const processor = new AudioWorkletNode(audioCtx, "resample-processor", {
+        processorOptions: { targetRate: TARGET_SAMPLE_RATE },
+      });
       workletNodeRef.current = processor;
 
-      processor.onaudioprocess = (e) => {
-        if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
-        const float32 = e.inputBuffer.getChannelData(0);
-        const inputRate = e.inputBuffer.sampleRate;
-        let toSend: Float32Array;
-        if (Math.abs(inputRate - TARGET_SAMPLE_RATE) < 100) {
-          toSend = float32;
-        } else {
-          const ratio = TARGET_SAMPLE_RATE / inputRate;
-          const outLen = Math.floor(float32.length * ratio);
-          toSend = new Float32Array(outLen);
-          for (let i = 0; i < outLen; i++) {
-            const srcIdx = i / ratio;
-            const lo = Math.floor(srcIdx);
-            const hi = Math.min(lo + 1, float32.length - 1);
-            const frac = srcIdx - lo;
-            toSend[i] = float32[lo] * (1 - frac) + float32[hi] * frac;
-          }
+      processor.port.onmessage = (e) => {
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+          wsRef.current.send(e.data);
         }
-        const int16 = new Int16Array(toSend.length);
-        for (let i = 0; i < toSend.length; i++) {
-          const s = Math.max(-1, Math.min(1, toSend[i]));
-          int16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
-        }
-        wsRef.current.send(int16.buffer);
       };
 
       source.connect(processor);
       processor.connect(audioCtx.destination);
+      URL.revokeObjectURL(url);
       setIsStreaming(true);
       setIsConnecting(false);
       setStatus("listening");

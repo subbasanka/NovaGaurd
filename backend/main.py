@@ -238,10 +238,11 @@ async def voice_websocket(websocket: WebSocket, run_id: str):
                     chunk_count += 1
                 except Exception:
                     break
+        except asyncio.CancelledError:
+            pass
         except Exception as exc:
             logger.warning("voice ws: output forward ended: %s", exc)
-        finally:
-            logger.info("voice ws: forwarded %d audio chunks to browser", chunk_count)
+        logger.info("voice ws: forwarded %d audio chunks to browser", chunk_count)
 
     output_task = asyncio.create_task(forward_output())
 

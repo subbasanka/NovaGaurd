@@ -160,11 +160,12 @@ class NovaSonicSession:
         await self._send_event(self._text_input(sys_content, VOICE_SYSTEM_PROMPT))
         await self._send_event(self._content_end(sys_content))
 
-        # Inject audit context as a non-interactive assistant text block
+        # Inject audit context as a non-interactive USER text block
+        # NOTE: Nova Sonic requires the first non-system message to be USER, not ASSISTANT
         context = _build_context(self._findings)
         if context and context != "No findings yet.":
             ctx_content = str(uuid.uuid4())
-            await self._send_event(self._text_content_start("ASSISTANT", ctx_content, interactive=False))
+            await self._send_event(self._text_content_start("USER", ctx_content, interactive=False))
             await self._send_event(self._text_input(ctx_content, f"Here are the current audit findings:\n{context}"))
             await self._send_event(self._content_end(ctx_content))
 
@@ -232,18 +233,25 @@ class NovaSonicSession:
     async def _receive_loop(self) -> None:
         """Read events from Nova Sonic and enqueue audio output."""
         try:
+            logger.info("voice: receive loop starting — awaiting output stream")
             _, output = await self._stream.await_output()
+            logger.info("voice: output stream acquired, reading events")
             audio_count = 0
+            event_count = 0
             while True:
                 try:
                     event_data = await output.receive()
+                except StopAsyncIteration:
+                    logger.info("voice: output stream ended normally (StopAsyncIteration) after %d events", event_count)
+                    break
                 except Exception as exc:
-                    logger.debug("voice: receive stream ended: %s", exc)
+                    logger.warning("voice: receive stream ended after %d events: %s: %s", event_count, type(exc).__name__, exc)
                     break
 
                 if not event_data:
                     continue
 
+                event_count += 1
                 raw = event_data.value.bytes_.decode("utf-8")
                 parsed = json.loads(raw)
                 event = parsed.get("event", parsed)
@@ -260,15 +268,20 @@ class NovaSonicSession:
 
                 # Content end for the response
                 elif "contentEnd" in event:
-                    pass  # response turn ended — user can keep talking
-                else:
-                    # Log unknown event types once to help debug
-                    keys = list(event.keys()) if isinstance(event, dict) else []
-                    if keys and "audioOutput" not in keys and "contentEnd" not in keys:
-                        logger.debug("voice: received event keys: %s", keys)
+                    logger.info("voice: contentEnd received — response turn ended")
 
+                # Content start — acknowledgement from Nova Sonic
+                elif "contentStart" in event:
+                    logger.info("voice: contentStart received — role=%s", event.get("contentStart", {}).get("role", "?"))
+
+                else:
+                    # Log all event types to help debug
+                    keys = list(event.keys()) if isinstance(event, dict) else []
+                    logger.info("voice: received event keys: %s", keys)
+
+            logger.info("voice: receive loop ended — %d events, %d audio chunks", event_count, audio_count)
         except asyncio.CancelledError:
-            pass
+            logger.info("voice: receive loop cancelled")
         except Exception as exc:
             logger.error("voice: receive loop error: %s", exc, exc_info=True)
         finally:
