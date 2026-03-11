@@ -1,8 +1,10 @@
-import { Loader2, CheckCircle, XCircle, ShieldCheck } from "lucide-react";
+import { useState, useCallback } from "react";
+import { Loader2, CheckCircle, XCircle, ShieldCheck, Maximize2 } from "lucide-react";
 import { motion } from "framer-motion";
 import type { Diff, RunStatus } from "../types";
 import { getApiUrl } from "../api";
 import { cn } from "../lib/cn";
+import { ScreenshotLightbox } from "./ScreenshotLightbox";
 
 interface Props {
   diff: Diff | null;
@@ -13,6 +15,14 @@ interface Props {
 }
 
 export function DiffPanel({ diff, status, runId, onApprove, verifyResult }: Props) {
+  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
+  const [lightboxAlt, setLightboxAlt] = useState("");
+  const openScreenshot = useCallback((src: string, alt: string) => {
+    setLightboxSrc(src);
+    setLightboxAlt(alt);
+  }, []);
+  const closeLightbox = useCallback(() => setLightboxSrc(null), []);
+
   if (!diff) {
     if (status === "awaiting_approval") {
       return (
@@ -122,20 +132,38 @@ export function DiffPanel({ diff, status, runId, onApprove, verifyResult }: Prop
           <div className="grid grid-cols-2 gap-3">
             <div>
               <p className="text-xs text-red-400 font-medium mb-1">Before</p>
-              <img
-                src={beforeScreenshot}
-                alt="Screenshot of page before accessibility fix was applied"
-                className="w-full rounded-lg border border-surface-border shadow-md"
-              />
+              <button
+                onClick={() => openScreenshot(beforeScreenshot, "Page before accessibility fix")}
+                className="relative group w-full rounded-lg overflow-hidden border border-surface-border hover:border-red-500/40 transition-colors cursor-pointer"
+                aria-label="View full before screenshot"
+              >
+                <img
+                  src={beforeScreenshot}
+                  alt="Screenshot of page before accessibility fix was applied"
+                  className="w-full rounded-lg shadow-md"
+                />
+                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 flex items-center justify-center transition-colors">
+                  <Maximize2 className="w-5 h-5 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                </div>
+              </button>
             </div>
             <div>
               <p className="text-xs text-emerald-400 font-medium mb-1">After</p>
               {afterScreenshot ? (
-                <img
-                  src={afterScreenshot}
-                  alt="Screenshot of page after accessibility fix was applied"
-                  className="w-full rounded-lg border border-surface-border shadow-md"
-                />
+                <button
+                  onClick={() => openScreenshot(afterScreenshot, "Page after accessibility fix")}
+                  className="relative group w-full rounded-lg overflow-hidden border border-surface-border hover:border-emerald-500/40 transition-colors cursor-pointer"
+                  aria-label="View full after screenshot"
+                >
+                  <img
+                    src={afterScreenshot}
+                    alt="Screenshot of page after accessibility fix was applied"
+                    className="w-full rounded-lg shadow-md"
+                  />
+                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 flex items-center justify-center transition-colors">
+                    <Maximize2 className="w-5 h-5 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                  </div>
+                </button>
               ) : (
                 <div className="w-full h-32 rounded-lg border border-surface-border bg-surface-raised flex items-center justify-center text-xs text-gray-500">
                   Waiting for screenshot...
@@ -172,6 +200,8 @@ export function DiffPanel({ diff, status, runId, onApprove, verifyResult }: Prop
           </div>
         </motion.div>
       )}
+
+      <ScreenshotLightbox src={lightboxSrc} alt={lightboxAlt} onClose={closeLightbox} />
     </div>
   );
 }

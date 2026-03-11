@@ -64,6 +64,16 @@ function deriveStateFromEvent(
         passed: event.data.passed as boolean,
         details: event.data.details as string,
       });
+      // Pick up after_screenshot from verify_done (verify agent captures its own screenshot)
+      if (event.data.after_screenshot) {
+        setDiffs((prev) =>
+          prev.map((d) =>
+            d.finding_id === event.data.finding_id
+              ? { ...d, after_screenshot: event.data.after_screenshot as string }
+              : d
+          )
+        );
+      }
       break;
     case "run_completed":
       setStatus("complete");

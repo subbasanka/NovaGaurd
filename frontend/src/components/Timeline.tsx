@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { motion } from "framer-motion";
 import {
   Rocket,
@@ -14,10 +14,12 @@ import {
   ScanSearch,
   Flag,
   XCircle,
+  Maximize2,
 } from "lucide-react";
 import type { AuditEvent } from "../types";
 import { getApiUrl } from "../api";
 import { cn } from "../lib/cn";
+import { ScreenshotLightbox } from "./ScreenshotLightbox";
 
 interface Props {
   events: AuditEvent[];
@@ -99,10 +101,21 @@ function formatTime(iso: string): string {
 
 export function Timeline({ events, runId }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null);
+  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
+  const [lightboxAlt, setLightboxAlt] = useState("");
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [events]);
+
+  const openScreenshot = useCallback((src: string, alt: string) => {
+    setLightboxSrc(src);
+    setLightboxAlt(alt);
+  }, []);
+
+  const closeLightbox = useCallback(() => {
+    setLightboxSrc(null);
+  }, []);
 
   if (!runId) {
     return (
@@ -113,50 +126,77 @@ export function Timeline({ events, runId }: Props) {
   }
 
   return (
-    <div
-      className="flex flex-col gap-1.5 p-3 overflow-y-auto"
-      aria-live="polite"
-      aria-label="Audit events"
-    >
-      {events.map((ev, i) => {
-        const Icon = EVENT_ICONS[ev.event] ?? Flag;
-        const color = EVENT_COLORS[ev.event] ?? "text-gray-400";
+    <>
+      <div
+        className="flex flex-col gap-1.5 p-3 overflow-y-auto"
+        aria-live="polite"
+        aria-label="Audit events"
+      >
+        {events.map((ev, i) => {
+          const Icon = EVENT_ICONS[ev.event] ?? Flag;
+          const color = EVENT_COLORS[ev.event] ?? "text-gray-400";
+          const hasScreenshot = ev.event === "crawl_step" && ev.data.screenshot_path;
+          const screenshotUrl = hasScreenshot
+            ? `${getApiUrl()}/runs/${ev.run_id}/screenshots/${ev.data.screenshot_path}`
+            : null;
 
-        return (
-          <motion.div
-            key={`${ev.event}-${ev.timestamp}-${i}`}
-            initial={{ opacity: 0, x: -12 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.25, delay: 0.03 }}
-            className="flex gap-3 items-start glass-light rounded-lg p-2.5"
-          >
-            {/* Icon or screenshot thumbnail */}
-            <div
-              className={cn(
-                "flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-md bg-surface/50",
-                color
-              )}
-              aria-hidden="true"
+          return (
+            <motion.div
+              key={`${ev.event}-${ev.timestamp}-${i}`}
+              initial={{ opacity: 0, x: -12 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ duration: 0.25, delay: 0.03 }}
+              className="glass-light rounded-lg p-2.5"
             >
-              {ev.event === "crawl_step" && ev.data.screenshot_path ? (
-                <img
-                  src={`${getApiUrl()}/runs/${ev.run_id}/screenshots/${ev.data.screenshot_path}`}
-                  alt={`Screenshot from crawl step ${ev.data.step_number}`}
-                  className="w-8 h-8 object-cover rounded-md"
-                />
-              ) : (
-                <Icon className="w-4 h-4" />
-              )}
-            </div>
+              <div className="flex gap-3 items-start">
+                {/* Icon */}
+                <div
+                  className={cn(
+                    "flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-md bg-surface/50",
+                    color
+                  )}
+                  aria-hidden="true"
+                >
+                  <Icon className="w-4 h-4" />
+                </div>
 
-            <div className="flex-1 min-w-0">
-              <p className="text-sm text-gray-300 leading-snug">{describeEvent(ev)}</p>
-              <p className="text-[11px] text-gray-500 mt-0.5">{formatTime(ev.timestamp)}</p>
-            </div>
-          </motion.div>
-        );
-      })}
-      <div ref={bottomRef} />
-    </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm text-gray-300 leading-snug">{describeEvent(ev)}</p>
+                  <p className="text-[11px] text-gray-500 mt-0.5">{formatTime(ev.timestamp)}</p>
+                </div>
+              </div>
+
+              {/* Screenshot preview — larger and clickable */}
+              {screenshotUrl && (
+                <button
+                  onClick={() =>
+                    openScreenshot(
+                      screenshotUrl,
+                      `Screenshot from crawl step ${ev.data.step_number}: ${String(ev.data.action).replace(/_/g, " ")}`
+                    )
+                  }
+                  className="relative group mt-2 w-full rounded-md overflow-hidden border border-surface-border hover:border-nova-500/40 transition-colors cursor-pointer"
+                  aria-label={`View full screenshot from step ${ev.data.step_number}`}
+                >
+                  <img
+                    src={screenshotUrl}
+                    alt={`Screenshot from crawl step ${ev.data.step_number}: ${String(ev.data.action).replace(/_/g, " ")}`}
+                    className="w-full h-auto max-h-40 object-cover rounded-md"
+                    loading="lazy"
+                  />
+                  {/* Hover overlay with expand icon */}
+                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 flex items-center justify-center transition-colors">
+                    <Maximize2 className="w-5 h-5 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                  </div>
+                </button>
+              )}
+            </motion.div>
+          );
+        })}
+        <div ref={bottomRef} />
+      </div>
+
+      <ScreenshotLightbox src={lightboxSrc} alt={lightboxAlt} onClose={closeLightbox} />
+    </>
   );
 }
