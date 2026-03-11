@@ -1,7 +1,7 @@
 import { useState, useCallback } from "react";
 import { Loader2, CheckCircle, XCircle, ShieldCheck, Maximize2 } from "lucide-react";
 import { motion } from "framer-motion";
-import type { Diff, RunStatus } from "../types";
+import type { BatchProgress, Diff, RunStatus, VerifyResult } from "../types";
 import { getApiUrl } from "../api";
 import { cn } from "../lib/cn";
 import { ScreenshotLightbox } from "./ScreenshotLightbox";
@@ -11,10 +11,11 @@ interface Props {
   status: RunStatus;
   runId: string | null;
   onApprove: () => void;
-  verifyResult: { passed: boolean; details: string } | null;
+  verifyResult: VerifyResult | null;
+  batchProgress: BatchProgress | null;
 }
 
-export function DiffPanel({ diff, status, runId, onApprove, verifyResult }: Props) {
+export function DiffPanel({ diff, status, runId, onApprove, verifyResult, batchProgress }: Props) {
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const [lightboxAlt, setLightboxAlt] = useState("");
   const openScreenshot = useCallback((src: string, alt: string) => {
@@ -119,7 +120,9 @@ export function DiffPanel({ diff, status, runId, onApprove, verifyResult }: Prop
       {(status === "applying" || status === "verifying") && (
         <div className="flex items-center gap-2.5 text-sm text-gray-400" role="status" aria-live="polite">
           <Loader2 className="w-5 h-5 animate-spin text-nova-400" aria-hidden="true" />
-          {status === "applying" ? "Applying fix via Nova Act..." : "Verifying fix..."}
+          {batchProgress && batchProgress.total > 1
+            ? `${batchProgress.stage === "apply" ? "Applying" : "Verifying"} fix ${batchProgress.current} of ${batchProgress.total}...`
+            : status === "applying" ? "Applying fix via Nova Act..." : "Verifying fix..."}
         </div>
       )}
 

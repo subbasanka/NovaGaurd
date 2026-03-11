@@ -15,6 +15,8 @@ import {
   Flag,
   XCircle,
   Maximize2,
+  RefreshCw,
+  Layers,
 } from "lucide-react";
 import type { AuditEvent } from "../types";
 import { getApiUrl } from "../api";
@@ -40,6 +42,8 @@ const EVENT_ICONS: Record<string, React.ElementType> = {
   verify_done: ScanSearch,
   run_completed: Flag,
   run_failed: XCircle,
+  fix_retry: RefreshCw,
+  batch_progress: Layers,
 };
 
 const EVENT_COLORS: Record<string, string> = {
@@ -56,6 +60,8 @@ const EVENT_COLORS: Record<string, string> = {
   verify_done: "text-teal-400",
   run_completed: "text-emerald-400",
   run_failed: "text-red-400",
+  fix_retry: "text-amber-400",
+  batch_progress: "text-sky-400",
 };
 
 function describeEvent(event: AuditEvent): string {
@@ -89,6 +95,10 @@ function describeEvent(event: AuditEvent): string {
     }
     case "run_failed":
       return `Run failed: ${d.error ?? "unknown error"}`;
+    case "fix_retry":
+      return `Retrying fix for finding ${d.finding_id} (attempt ${d.attempt})`;
+    case "batch_progress":
+      return `${String(d.stage).charAt(0).toUpperCase()}${String(d.stage).slice(1)}: ${d.current} of ${d.total}`;
     default:
       return event.event;
   }

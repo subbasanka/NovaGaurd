@@ -18,6 +18,7 @@ async def mock_pipeline(run_id: str, run_state: dict):
 
     emit_event(run_state, run_id, "run_started", {"url": url})
 
+    # --- Crawl ---
     await asyncio.sleep(0.5)
     emit_event(run_state, run_id, "crawl_step", {
         "step_number": 1,
@@ -53,6 +54,7 @@ async def mock_pipeline(run_id: str, run_state: dict):
     })
     run_state["status"] = "analyzing"
 
+    # --- Findings ---
     await asyncio.sleep(1.0)
     finding_1 = {
         "id": "f1",
@@ -93,22 +95,47 @@ async def mock_pipeline(run_id: str, run_state: dict):
     emit_event(run_state, run_id, "analysis_complete", {"total_findings": 3})
     run_state["status"] = "fixing"
 
-    await asyncio.sleep(1.0)
-    diff = {
-        "finding_id": "f1",
-        "before_html": '<img src="hero.png">',
-        "after_html": '<img src="hero.png" alt="Team collaborating on accessibility project">',
-        "patch": '--- a/index.html\n+++ b/index.html\n@@ -1 +1 @@\n-<img src="hero.png">\n+<img src="hero.png" alt="Team collaborating on accessibility project">',
-        "rationale": "Adding alt attribute satisfies WCAG 1.1.1 by providing a text alternative for the non-text content.",
-    }
-    run_state["diffs"].append(diff)
-    emit_event(run_state, run_id, "diff_ready", diff)
+    # --- Batch fix generation (3 diffs) ---
+    diffs = [
+        {
+            "finding_id": "f1",
+            "before_html": '<img src="hero.png">',
+            "after_html": '<img src="hero.png" alt="Team collaborating on accessibility project">',
+            "patch": '--- a/index.html\n+++ b/index.html\n@@ -1 +1 @@\n-<img src="hero.png">\n+<img src="hero.png" alt="Team collaborating on accessibility project">',
+            "rationale": "Adding alt attribute satisfies WCAG 1.1.1 by providing a text alternative for the non-text content.",
+        },
+        {
+            "finding_id": "f2",
+            "before_html": '<button style="color:#aaa;background:#ccc">Submit</button>',
+            "after_html": '<button style="color:#333;background:#ccc">Submit</button>',
+            "patch": '--- a/index.html\n+++ b/index.html\n@@ -1 +1 @@\n-<button style="color:#aaa;background:#ccc">Submit</button>\n+<button style="color:#333;background:#ccc">Submit</button>',
+            "rationale": "Changing text color from #aaa to #333 on #ccc background meets the 4.5:1 contrast ratio per WCAG 1.4.3.",
+        },
+        {
+            "finding_id": "f3",
+            "before_html": '<input type="email" placeholder="Email">',
+            "after_html": '<label for="email">Email</label><input type="email" id="email" placeholder="Email">',
+            "patch": '--- a/index.html\n+++ b/index.html\n@@ -1 +1,2 @@\n-<input type="email" placeholder="Email">\n+<label for="email">Email</label>\n+<input type="email" id="email" placeholder="Email">',
+            "rationale": "Adding an explicit <label> satisfies WCAG 1.3.1 and 4.1.2 by giving the input an accessible name.",
+        },
+    ]
 
+    for i, diff in enumerate(diffs):
+        await asyncio.sleep(0.8)
+        emit_event(run_state, run_id, "batch_progress", {
+            "stage": "fix",
+            "current": i + 1,
+            "total": len(diffs),
+            "finding_id": diff["finding_id"],
+        })
+        run_state["diffs"].append(diff)
+        emit_event(run_state, run_id, "diff_ready", diff)
+
+    # --- Approval gate ---
     await asyncio.sleep(0.5)
-    emit_event(run_state, run_id, "approval_required", {"diffs_pending": 1})
+    emit_event(run_state, run_id, "approval_required", {"diffs_pending": len(diffs)})
     run_state["status"] = "awaiting_approval"
 
-    # Poll for approval
     while not run_state.get("approved", False):
         await asyncio.sleep(0.5)
 
@@ -116,29 +143,70 @@ async def mock_pipeline(run_id: str, run_state: dict):
     emit_event(run_state, run_id, "approval_received", {"approved_by": "user"})
     run_state["status"] = "applying"
 
-    await asyncio.sleep(0.5)
-    emit_event(run_state, run_id, "apply_started", {"finding_id": "f1"})
+    # --- Batch apply ---
+    for i, diff in enumerate(diffs):
+        await asyncio.sleep(0.3)
+        emit_event(run_state, run_id, "batch_progress", {
+            "stage": "apply",
+            "current": i + 1,
+            "total": len(diffs),
+            "finding_id": diff["finding_id"],
+        })
+        emit_event(run_state, run_id, "apply_started", {"finding_id": diff["finding_id"]})
+        await asyncio.sleep(1.0)
+        emit_event(run_state, run_id, "apply_done", {
+            "finding_id": diff["finding_id"],
+            "after_screenshot": None,
+        })
 
-    await asyncio.sleep(1.5)
-    emit_event(run_state, run_id, "apply_done", {
-        "finding_id": "f1",
-        "after_screenshot": None,
-    })
     run_state["status"] = "verifying"
 
-    await asyncio.sleep(1.5)
+    # --- Batch verify (f1 and f3 pass, f2 fails initially) ---
+    verify_results = [
+        {"finding_id": "f1", "passed": True, "details": "Alt text confirmed present and descriptive."},
+        {"finding_id": "f2", "passed": False, "details": "Contrast ratio still below 4.5:1 threshold."},
+        {"finding_id": "f3", "passed": True, "details": "Label element correctly associated with input."},
+    ]
+
+    for i, vr in enumerate(verify_results):
+        await asyncio.sleep(0.3)
+        emit_event(run_state, run_id, "batch_progress", {
+            "stage": "verify",
+            "current": i + 1,
+            "total": len(verify_results),
+            "finding_id": vr["finding_id"],
+        })
+        await asyncio.sleep(1.0)
+        emit_event(run_state, run_id, "verify_done", vr)
+
+    # --- Retry failed fix (f2) ---
+    await asyncio.sleep(0.5)
+    emit_event(run_state, run_id, "fix_retry", {
+        "finding_id": "f2",
+        "attempt": 2,
+        "reason": "Contrast ratio still below 4.5:1 threshold.",
+    })
+    await asyncio.sleep(1.0)
+    emit_event(run_state, run_id, "apply_started", {"finding_id": "f2"})
+    await asyncio.sleep(1.0)
+    emit_event(run_state, run_id, "apply_done", {
+        "finding_id": "f2",
+        "after_screenshot": None,
+    })
+    await asyncio.sleep(1.0)
     emit_event(run_state, run_id, "verify_done", {
-        "finding_id": "f1",
+        "finding_id": "f2",
         "passed": True,
-        "details": "Alt text confirmed present and descriptive.",
+        "details": "Contrast ratio now meets 4.5:1 after retry.",
     })
 
+    # --- Complete ---
     await asyncio.sleep(0.5)
     emit_event(run_state, run_id, "run_completed", {
         "summary": {
             "total": 3,
-            "fixed": 1,
-            "verified": 1,
+            "fixed": 3,
+            "verified": 3,
         }
     })
     run_state["status"] = "complete"

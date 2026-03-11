@@ -9,12 +9,13 @@ from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, PlainTextResponse
+from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse
 from pydantic import BaseModel
 
 from mock_pipeline import mock_pipeline
 from graph import build_graph
 from voice import NovaSonicSession
+from agents.report import generate_report
 
 # Ensure all loggers output to console (uvicorn suppresses app-level logs by default)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -121,6 +122,16 @@ async def approve_run(run_id: str):
         raise HTTPException(status_code=404, detail="Run not found")
     runs[run_id]["approved"] = True
     return {"status": "approved"}
+
+
+@app.get("/runs/{run_id}/report")
+async def get_report(run_id: str):
+    if run_id not in runs:
+        raise HTTPException(status_code=404, detail="Run not found")
+    run_state = runs[run_id]
+    loop = asyncio.get_event_loop()
+    html = await loop.run_in_executor(None, generate_report, run_state)
+    return HTMLResponse(content=html)
 
 
 @app.websocket("/ws/{run_id}")

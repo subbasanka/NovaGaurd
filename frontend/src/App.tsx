@@ -1,5 +1,6 @@
 import { useState, useCallback, useMemo } from "react";
 import { AnimatePresence, motion } from "framer-motion";
+import { Download } from "lucide-react";
 import type { Diff, Finding } from "./types";
 import { getApiUrl } from "./api";
 import { useAuditWebSocket } from "./hooks/useAuditWebSocket";
@@ -41,10 +42,16 @@ export default function App() {
     setSelectedDiff(null);
   }, []);
 
-  const { events, findings, diffs, status, verifyResult, summary, runError, clearRunError } =
+  const { events, findings, diffs, status, verifyResults, batchProgress, summary, runError, clearRunError } =
     useAuditWebSocket(runId, handleRunInvalid);
 
   const score = useMemo(() => computeScore(findings), [findings]);
+
+  // Find the verify result for the currently selected diff
+  const selectedVerifyResult = useMemo(() => {
+    if (!selectedDiff) return null;
+    return verifyResults.find((r) => r.finding_id === selectedDiff.finding_id) ?? null;
+  }, [selectedDiff, verifyResults]);
 
   async function startAudit() {
     setError(null);
@@ -81,6 +88,11 @@ export default function App() {
     await fetch(`${getApiUrl()}/runs/${runId}/approve`, { method: "POST" });
   }
 
+  function downloadReport() {
+    if (!runId) return;
+    window.open(`${getApiUrl()}/runs/${runId}/report`, "_blank");
+  }
+
   const handleVoiceCommand = useCallback((cmd: VoiceCommand) => {
     switch (cmd.action) {
       case "approve":
@@ -90,7 +102,6 @@ export default function App() {
         startAudit();
         break;
       case "explain": {
-        // Find the finding by number (1-based) and select its diff
         const idx = cmd.arg ? parseInt(cmd.arg, 10) - 1 : 0;
         const finding = findings[idx];
         if (finding) {
@@ -100,7 +111,6 @@ export default function App() {
         break;
       }
       case "fix_all":
-        // Approve is the closest action available
         approveFixes();
         break;
     }
@@ -143,6 +153,13 @@ export default function App() {
               {findings.length > 0 && (
                 <AccessibilityScore score={score} />
               )}
+              <button
+                onClick={downloadReport}
+                className="ml-auto flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-semibold bg-emerald-600 text-white hover:bg-emerald-500 transition-colors"
+              >
+                <Download className="w-3.5 h-3.5" aria-hidden="true" />
+                Download Report
+              </button>
             </div>
           </motion.div>
         )}
@@ -165,6 +182,13 @@ export default function App() {
               <span className="text-xs text-gray-500">
                 {findings.length} finding{findings.length !== 1 ? "s" : ""} detected
               </span>
+              {batchProgress && (
+                <span className="text-xs text-nova-400 font-medium ml-auto">
+                  {batchProgress.stage === "fix" && `Generating fix ${batchProgress.current} of ${batchProgress.total}...`}
+                  {batchProgress.stage === "apply" && `Applying fix ${batchProgress.current} of ${batchProgress.total}...`}
+                  {batchProgress.stage === "verify" && `Verifying fix ${batchProgress.current} of ${batchProgress.total}...`}
+                </span>
+              )}
             </div>
           </motion.div>
         )}
@@ -198,8 +222,11 @@ export default function App() {
           <FindingsPanel
             findings={findings}
             diffs={diffs}
+            verifyResults={verifyResults}
             onSelectDiff={setSelectedDiff}
+            onFixAll={approveFixes}
             selectedDiffId={selectedDiff?.finding_id ?? null}
+            status={status}
           />
         </section>
 
@@ -218,7 +245,8 @@ export default function App() {
             status={status}
             runId={runId}
             onApprove={approveFixes}
-            verifyResult={verifyResult}
+            verifyResult={selectedVerifyResult}
+            batchProgress={batchProgress}
           />
         </section>
       </main>

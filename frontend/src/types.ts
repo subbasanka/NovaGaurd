@@ -42,6 +42,19 @@ export type RunStatus =
   | "complete"
   | "failed";
 
+export interface BatchProgress {
+  stage: "fix" | "apply" | "verify";
+  current: number;
+  total: number;
+  finding_id: string;
+}
+
+export interface VerifyResult {
+  finding_id: string;
+  passed: boolean;
+  details: string;
+}
+
 /** API response for POST /runs/start */
 export interface StartRunResponse {
   run_id: string;

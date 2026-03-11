@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import type { AuditEvent, Diff, Finding, RunStatus } from "../types";
+import type { AuditEvent, BatchProgress, Diff, Finding, RunStatus, VerifyResult } from "../types";
 import { getApiUrl, getWsUrl } from "../api";
 
 export interface AuditState {
@@ -7,7 +7,8 @@ export interface AuditState {
   findings: Finding[];
   diffs: Diff[];
   status: RunStatus;
-  verifyResult: { passed: boolean; details: string } | null;
+  verifyResults: VerifyResult[];
+  batchProgress: BatchProgress | null;
   summary: { total: number; fixed: number; verified: number } | null;
   runError: string | null;
   clearRunError: () => void;
@@ -18,7 +19,8 @@ function deriveStateFromEvent(
   setStatus: (s: RunStatus) => void,
   setFindings: React.Dispatch<React.SetStateAction<Finding[]>>,
   setDiffs: React.Dispatch<React.SetStateAction<Diff[]>>,
-  setVerifyResult: React.Dispatch<React.SetStateAction<AuditState["verifyResult"]>>,
+  setVerifyResults: React.Dispatch<React.SetStateAction<VerifyResult[]>>,
+  setBatchProgress: React.Dispatch<React.SetStateAction<BatchProgress | null>>,
   setSummary: React.Dispatch<React.SetStateAction<AuditState["summary"]>>,
   setRunError: React.Dispatch<React.SetStateAction<string | null>>,
 ) {
@@ -38,8 +40,12 @@ function deriveStateFromEvent(
     case "diff_ready":
       setDiffs((prev) => [...prev, event.data as unknown as Diff]);
       break;
+    case "batch_progress":
+      setBatchProgress(event.data as unknown as BatchProgress);
+      break;
     case "approval_required":
       setStatus("awaiting_approval");
+      setBatchProgress(null);
       break;
     case "approval_received":
       setStatus("applying");
@@ -60,11 +66,23 @@ function deriveStateFromEvent(
       break;
     case "verify_done":
       setStatus("verifying");
-      setVerifyResult({
-        passed: event.data.passed as boolean,
-        details: event.data.details as string,
+      setVerifyResults((prev) => {
+        // Replace existing result for this finding_id, or append
+        const fid = event.data.finding_id as string;
+        const result: VerifyResult = {
+          finding_id: fid,
+          passed: event.data.passed as boolean,
+          details: event.data.details as string,
+        };
+        const idx = prev.findIndex((r) => r.finding_id === fid);
+        if (idx >= 0) {
+          const next = [...prev];
+          next[idx] = result;
+          return next;
+        }
+        return [...prev, result];
       });
-      // Pick up after_screenshot from verify_done (verify agent captures its own screenshot)
+      // Pick up after_screenshot from verify_done
       if (event.data.after_screenshot) {
         setDiffs((prev) =>
           prev.map((d) =>
@@ -75,13 +93,18 @@ function deriveStateFromEvent(
         );
       }
       break;
+    case "fix_retry":
+      // Stays in verifying status; Timeline will show the retry event
+      break;
     case "run_completed":
       setStatus("complete");
       setSummary(event.data.summary as AuditState["summary"]);
+      setBatchProgress(null);
       break;
     case "run_failed":
       setStatus("failed");
       setRunError((event.data?.error as string) ?? "Audit failed");
+      setBatchProgress(null);
       break;
   }
 }
@@ -91,7 +114,8 @@ export function useAuditWebSocket(runId: string | null, onRunInvalid?: () => voi
   const [findings, setFindings] = useState<Finding[]>([]);
   const [diffs, setDiffs] = useState<Diff[]>([]);
   const [status, setStatus] = useState<RunStatus>("idle");
-  const [verifyResult, setVerifyResult] = useState<AuditState["verifyResult"]>(null);
+  const [verifyResults, setVerifyResults] = useState<VerifyResult[]>([]);
+  const [batchProgress, setBatchProgress] = useState<BatchProgress | null>(null);
   const [summary, setSummary] = useState<AuditState["summary"]>(null);
   const [runError, setRunError] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -101,7 +125,8 @@ export function useAuditWebSocket(runId: string | null, onRunInvalid?: () => voi
     setFindings([]);
     setDiffs([]);
     setStatus("crawling");
-    setVerifyResult(null);
+    setVerifyResults([]);
+    setBatchProgress(null);
     setSummary(null);
     setRunError(null);
   }, []);
@@ -110,23 +135,22 @@ export function useAuditWebSocket(runId: string | null, onRunInvalid?: () => voi
     setEvents(pastEvents);
     setFindings([]);
     setDiffs([]);
-    setVerifyResult(null);
+    setVerifyResults([]);
+    setBatchProgress(null);
     setSummary(null);
     setRunError(null);
     for (const ev of pastEvents) {
-      deriveStateFromEvent(ev, setStatus, setFindings, setDiffs, setVerifyResult, setSummary, setRunError);
+      deriveStateFromEvent(ev, setStatus, setFindings, setDiffs, setVerifyResults, setBatchProgress, setSummary, setRunError);
     }
   }, []);
 
   useEffect(() => {
     if (!runId) return;
 
-    // Reset state at the start of the async flow (inside callback, not synchronous in effect body)
     let cancelled = false;
 
     async function connectOrRestore() {
       resetState();
-      // Try to fetch existing run state (handles refresh + already-completed runs)
       try {
         const res = await fetch(`${getApiUrl()}/runs/${runId}`);
         if (res.ok) {
@@ -137,7 +161,6 @@ export function useAuditWebSocket(runId: string | null, onRunInvalid?: () => voi
           const isTerminal = data.status === "completed" || data.status === "failed";
           if (isTerminal) return;
         } else if (res.status === 404) {
-          // Run no longer exists (backend restarted) — clear stale state
           if (!cancelled) {
             setStatus("idle");
             try { sessionStorage.removeItem("novaguard_run_id"); } catch { /* ignore */ }
@@ -170,7 +193,7 @@ export function useAuditWebSocket(runId: string | null, onRunInvalid?: () => voi
           return [...prev, parsed];
         });
 
-        deriveStateFromEvent(parsed, setStatus, setFindings, setDiffs, setVerifyResult, setSummary, setRunError);
+        deriveStateFromEvent(parsed, setStatus, setFindings, setDiffs, setVerifyResults, setBatchProgress, setSummary, setRunError);
       };
 
       ws.onerror = () => {
@@ -191,5 +214,5 @@ export function useAuditWebSocket(runId: string | null, onRunInvalid?: () => voi
 
   const clearRunError = useCallback(() => setRunError(null), []);
 
-  return { events, findings, diffs, status, verifyResult, summary, runError, clearRunError };
+  return { events, findings, diffs, status, verifyResults, batchProgress, summary, runError, clearRunError };
 }
