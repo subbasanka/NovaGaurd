@@ -1,12 +1,19 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import { motion } from "framer-motion";
-import { Mic, Square } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { Mic, Square, MicOff, Volume2 } from "lucide-react";
 import type { Finding } from "../types";
 import { cn } from "../lib/cn";
+
+export interface VoiceCommand {
+  action: string;
+  arg?: string;
+  transcript?: string;
+}
 
 interface Props {
   runId: string | null;
   findings: Finding[];
+  onVoiceCommand?: (cmd: VoiceCommand) => void;
 }
 
 const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
@@ -54,12 +61,15 @@ class ResampleProcessor extends AudioWorkletProcessor {
 registerProcessor('resample-processor', ResampleProcessor);
 `;
 
-export function VoicePanel({ runId, findings }: Props) {
+export function VoicePanel({ runId, findings, onVoiceCommand }: Props) {
   const [isStreaming, setIsStreaming] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string>("idle");
   const [retryCount, setRetryCount] = useState(0);
+  const [transcript, setTranscript] = useState<string | null>(null);
+  const [lastCommand, setLastCommand] = useState<string | null>(null);
+  const micAvailable = typeof navigator !== "undefined" && !!navigator.mediaDevices?.getUserMedia;
 
   const wsRef = useRef<WebSocket | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
@@ -69,6 +79,12 @@ export function VoicePanel({ runId, findings }: Props) {
   const nextPlayTimeRef = useRef<number>(0);
   const isRetryingRef = useRef(false);
   const startStreamingRef = useRef<() => void>(() => {});
+  const onVoiceCommandRef = useRef(onVoiceCommand);
+
+  // Keep callback ref in sync
+  useEffect(() => {
+    onVoiceCommandRef.current = onVoiceCommand;
+  }, [onVoiceCommand]);
 
   const cleanup = useCallback(() => {
     if (mediaStreamRef.current) {
@@ -132,6 +148,8 @@ export function VoicePanel({ runId, findings }: Props) {
   const startStreaming = useCallback(async () => {
     if (isStreaming || isConnecting || !runId) return;
     setError(null);
+    setTranscript(null);
+    setLastCommand(null);
     setIsConnecting(true);
     setStatus("connecting");
     setRetryCount(0);
@@ -177,6 +195,16 @@ export function VoicePanel({ runId, findings }: Props) {
               } else {
                 setError(msg.detail || "Nova Sonic error");
               }
+            } else if (msg.type === "voice_command") {
+              // Voice command detected by backend
+              const cmd: VoiceCommand = { action: msg.action, arg: msg.arg, transcript: msg.transcript };
+              setLastCommand(`${cmd.action}${cmd.arg ? `:${cmd.arg}` : ""}`);
+              if (msg.transcript) setTranscript(msg.transcript);
+              onVoiceCommandRef.current?.(cmd);
+              // Auto-clear command feedback after 3 seconds
+              setTimeout(() => setLastCommand(null), 3000);
+            } else if (msg.type === "transcript") {
+              setTranscript(msg.text);
             }
           } catch {
             /* ignore */
@@ -218,7 +246,7 @@ export function VoicePanel({ runId, findings }: Props) {
       const blob = new Blob([WORKLET_CODE], { type: "application/javascript" });
       const url = URL.createObjectURL(blob);
       await audioCtx.audioWorklet.addModule(url);
-      
+
       const processor = new AudioWorkletNode(audioCtx, "resample-processor", {
         processorOptions: { targetRate: TARGET_SAMPLE_RATE },
       });
@@ -270,12 +298,37 @@ export function VoicePanel({ runId, findings }: Props) {
     );
   }
 
+  // Mic not available fallback
+  if (!micAvailable) {
+    return (
+      <div className="flex items-center gap-3 p-4">
+        <div className="flex items-center justify-center w-12 h-12 rounded-full bg-gray-700">
+          <MicOff className="w-5 h-5 text-gray-400" aria-hidden="true" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium text-gray-400">Microphone unavailable</p>
+          <p className="text-xs text-gray-500 mt-0.5">
+            Your browser does not support microphone access or permission was denied.
+            Use a modern browser with HTTPS to enable voice features.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   const statusLabel = {
     idle: "Ready",
     connecting: "Connecting...",
     listening: "Listening...",
     speaking: "Nova is speaking...",
   }[status];
+
+  const COMMAND_LABELS: Record<string, string> = {
+    approve: "Approving fix...",
+    start_audit: "Starting new audit...",
+    fix_all: "Fixing all issues...",
+    explain: "Explaining finding...",
+  };
 
   return (
     <div className="flex items-center gap-4 p-4">
@@ -286,7 +339,7 @@ export function VoicePanel({ runId, findings }: Props) {
         whileHover={{ scale: 1.05 }}
         whileTap={{ scale: 0.95 }}
         className={cn(
-          "relative flex items-center justify-center w-12 h-12 rounded-full transition-all duration-200",
+          "relative flex items-center justify-center w-14 h-14 rounded-full transition-all duration-200",
           isStreaming
             ? "bg-red-500 hover:bg-red-400 text-white shadow-lg shadow-red-500/30"
             : isConnecting
@@ -301,26 +354,36 @@ export function VoicePanel({ runId, findings }: Props) {
           <Mic className="w-5 h-5" aria-hidden="true" />
         )}
 
-        {/* Pulse animation when streaming */}
-        {isStreaming && (
+        {/* Pulse animation when listening */}
+        {status === "listening" && (
           <span className="absolute inset-0 rounded-full animate-ping bg-red-400 opacity-20" aria-hidden="true" />
         )}
 
-        {/* Glow ring when speaking */}
+        {/* Waveform ring when speaking */}
         {status === "speaking" && (
-          <span
-            className="absolute -inset-1 rounded-full border-2 border-nova-400 animate-pulse-slow opacity-60"
-            aria-hidden="true"
-          />
+          <>
+            <span
+              className="absolute -inset-1 rounded-full border-2 border-nova-400 opacity-60"
+              aria-hidden="true"
+              style={{ animation: "pulse 1.5s ease-in-out infinite" }}
+            />
+            <span
+              className="absolute -inset-2.5 rounded-full border border-nova-400/30 opacity-40"
+              aria-hidden="true"
+              style={{ animation: "pulse 1.5s ease-in-out infinite 0.3s" }}
+            />
+          </>
         )}
       </motion.button>
 
-      {/* Status text */}
+      {/* Status + transcript */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
+          {/* Status indicator dot */}
           <span
             className={cn(
-              "inline-block w-2 h-2 rounded-full",
+              "inline-block w-2 h-2 rounded-full flex-shrink-0",
+              status === "speaking" ? "bg-nova-400 animate-pulse" :
               isStreaming ? "bg-emerald-400 animate-pulse" : "bg-gray-600"
             )}
             aria-hidden="true"
@@ -328,13 +391,56 @@ export function VoicePanel({ runId, findings }: Props) {
           <span className="text-sm font-medium text-gray-300" role="status" aria-live="polite">
             {statusLabel}
           </span>
+          {/* Speaking icon */}
+          {status === "speaking" && (
+            <Volume2 className="w-4 h-4 text-nova-400 animate-pulse" aria-hidden="true" />
+          )}
         </div>
-        <p className="text-xs text-gray-500 mt-0.5 truncate">
-          {isStreaming
-            ? "Ask a question, then pause \u2014 Nova responds when you stop speaking"
-            : "Click the mic to start a speech-to-speech conversation"}
-        </p>
+
+        {/* Transcript or instructions */}
+        <AnimatePresence mode="wait">
+          {transcript ? (
+            <motion.p
+              key="transcript"
+              initial={{ opacity: 0, y: 4 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+              className="text-xs text-gray-400 mt-1 line-clamp-2"
+              aria-live="polite"
+            >
+              {transcript}
+            </motion.p>
+          ) : (
+            <motion.p
+              key="hint"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="text-xs text-gray-500 mt-0.5 truncate"
+            >
+              {isStreaming
+                ? 'Try: "explain the critical finding" or "approve the fix"'
+                : "Click the mic to start a speech-to-speech conversation"}
+            </motion.p>
+          )}
+        </AnimatePresence>
       </div>
+
+      {/* Command feedback badge */}
+      <AnimatePresence>
+        {lastCommand && (
+          <motion.span
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.9 }}
+            className="px-3 py-1.5 bg-nova-500/15 text-nova-300 text-xs font-semibold rounded-full border border-nova-500/30 whitespace-nowrap"
+            role="status"
+            aria-live="assertive"
+          >
+            {COMMAND_LABELS[lastCommand.split(":")[0]] ?? `Command: ${lastCommand}`}
+          </motion.span>
+        )}
+      </AnimatePresence>
 
       {/* Error */}
       {error && (

@@ -8,6 +8,7 @@ import { Timeline } from "./components/Timeline";
 import { FindingsPanel } from "./components/FindingsPanel";
 import { DiffPanel } from "./components/DiffPanel";
 import { VoicePanel } from "./components/VoicePanel";
+import type { VoiceCommand } from "./components/VoicePanel";
 import { ErrorToast } from "./components/ErrorToast";
 import { AccessibilityScore } from "./components/AccessibilityScore";
 
@@ -79,6 +80,32 @@ export default function App() {
     if (!runId) return;
     await fetch(`${getApiUrl()}/runs/${runId}/approve`, { method: "POST" });
   }
+
+  const handleVoiceCommand = useCallback((cmd: VoiceCommand) => {
+    switch (cmd.action) {
+      case "approve":
+        approveFixes();
+        break;
+      case "start_audit":
+        startAudit();
+        break;
+      case "explain": {
+        // Find the finding by number (1-based) and select its diff
+        const idx = cmd.arg ? parseInt(cmd.arg, 10) - 1 : 0;
+        const finding = findings[idx];
+        if (finding) {
+          const diff = diffs.find((d) => d.finding_id === finding.id);
+          if (diff) setSelectedDiff(diff);
+        }
+        break;
+      }
+      case "fix_all":
+        // Approve is the closest action available
+        approveFixes();
+        break;
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [runId, findings, diffs]);
 
   return (
     <div className="flex flex-col h-screen bg-surface font-sans text-gray-100">
@@ -212,7 +239,7 @@ export default function App() {
                 Ask Nova 2 Sonic
               </h2>
             </div>
-            <VoicePanel runId={runId} findings={findings} />
+            <VoicePanel runId={runId} findings={findings} onVoiceCommand={handleVoiceCommand} />
           </motion.div>
         )}
       </AnimatePresence>
