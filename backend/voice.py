@@ -29,8 +29,22 @@ OUTPUT_SAMPLE_RATE = 24000
 
 VOICE_SYSTEM_PROMPT = (
     "You are NovaGuard, a concise voice assistant for web accessibility audits. "
-    "Answer in 1-2 sentences. Lead with the most critical issue."
+    "Answer in 1-2 sentences. Lead with the most critical issue.\n\n"
+    "You can execute commands when the user asks. When you recognize a user intent to "
+    "perform one of these actions, include the exact tag in your text response "
+    "(the tag will be stripped before display):\n"
+    "- User wants to approve/apply a fix: include [CMD:approve]\n"
+    "- User wants to explain a specific finding (e.g. 'explain finding 2'): include [CMD:explain:N] where N is the finding number\n"
+    "- User wants to start a new audit: include [CMD:start_audit]\n"
+    "- User says 'fix all' or wants to fix everything: include [CMD:fix_all]\n\n"
+    "Always confirm the action verbally while including the tag. For example: "
+    "'Sure, approving the fix now. [CMD:approve]' or "
+    "'Let me explain finding 2. [CMD:explain:2]'"
 )
+
+# Regex to extract [CMD:...] tags from Nova Sonic text output
+import re
+_CMD_PATTERN = re.compile(r"\[CMD:(\w+)(?::(\w+))?\]")
 
 
 def _build_context(findings: list[dict], max_chars: int = 800) -> str:
@@ -91,7 +105,7 @@ class NovaSonicSession:
         self._prompt_name: str = str(uuid.uuid4())
         self._audio_content_name: str = str(uuid.uuid4())
         self._stream: Any = None
-        self._output_queue: asyncio.Queue[bytes | None] = asyncio.Queue()
+        self._output_queue: asyncio.Queue[bytes | dict | None] = asyncio.Queue()
         self._receive_task: asyncio.Task | None = None
         self._is_open = False
         self._text_sent = False
@@ -185,13 +199,13 @@ class NovaSonicSession:
         b64 = base64.b64encode(pcm_bytes).decode("ascii")
         await self._send_event(self._audio_input(b64))
 
-    async def receive_audio(self):
-        """Async generator that yields PCM audio bytes from Nova Sonic."""
+    async def receive_output(self):
+        """Async generator that yields PCM audio bytes or command dicts from Nova Sonic."""
         while True:
-            chunk = await self._output_queue.get()
-            if chunk is None:
+            item = await self._output_queue.get()
+            if item is None:
                 break
-            yield chunk
+            yield item
 
     async def close(self) -> None:
         """Gracefully close the session."""
@@ -265,6 +279,27 @@ class NovaSonicSession:
                         audio_count += 1
                         if audio_count <= 3:
                             logger.info("voice: received audio chunk %d (%d bytes)", audio_count, len(pcm))
+
+                # Text output — check for voice commands and forward transcript
+                elif "textOutput" in event:
+                    text = event["textOutput"].get("content", "")
+                    if text:
+                        # Check for embedded command tags
+                        match = _CMD_PATTERN.search(text)
+                        if match:
+                            action = match.group(1)
+                            arg = match.group(2)
+                            cmd_event: dict = {"type": "voice_command", "action": action}
+                            if arg:
+                                cmd_event["arg"] = arg
+                            # Strip the command tag from transcript
+                            clean_text = _CMD_PATTERN.sub("", text).strip()
+                            cmd_event["transcript"] = clean_text
+                            logger.info("voice: detected command — action=%s arg=%s", action, arg)
+                            await self._output_queue.put(cmd_event)
+                        else:
+                            # Forward transcript for display
+                            await self._output_queue.put({"type": "transcript", "text": text})
 
                 # Content end for the response
                 elif "contentEnd" in event:

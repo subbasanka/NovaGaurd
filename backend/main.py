@@ -229,13 +229,17 @@ async def voice_websocket(websocket: WebSocket, run_id: str):
     logger.info("voice ws: session ready, streaming audio")
 
     async def forward_output():
-        """Stream audio from Nova Sonic → browser."""
+        """Stream audio and command events from Nova Sonic → browser."""
         chunk_count = 0
         try:
-            async for pcm_chunk in session.receive_audio():
+            async for item in session.receive_output():
                 try:
-                    await websocket.send_bytes(pcm_chunk)
-                    chunk_count += 1
+                    if isinstance(item, bytes):
+                        await websocket.send_bytes(item)
+                        chunk_count += 1
+                    elif isinstance(item, dict):
+                        # Command or transcript event — forward as JSON
+                        await websocket.send_json(item)
                 except Exception:
                     break
         except asyncio.CancelledError:
