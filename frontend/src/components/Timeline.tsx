@@ -17,6 +17,8 @@ import {
   Maximize2,
   RefreshCw,
   Layers,
+  Camera,
+  Bot,
 } from "lucide-react";
 import type { AuditEvent } from "../types";
 import { getApiUrl } from "../api";
@@ -64,41 +66,77 @@ const EVENT_COLORS: Record<string, string> = {
   batch_progress: "text-sky-400",
 };
 
+/** Maps event types to the Nova model/agent responsible */
+const EVENT_AGENT: Record<string, string> = {
+  run_started: "NovaGuard",
+  crawl_step: "Nova Act",
+  crawl_complete: "Nova Act",
+  finding_created: "Nova 2 Lite",
+  analysis_complete: "Nova 2 Lite",
+  diff_ready: "Nova 2 Lite",
+  approval_required: "Human-in-the-Loop",
+  approval_received: "Human-in-the-Loop",
+  apply_started: "Nova Act",
+  apply_done: "Nova Act",
+  verify_done: "Nova Act",
+  run_completed: "NovaGuard",
+  run_failed: "NovaGuard",
+  fix_retry: "Nova 2 Lite",
+  batch_progress: "Pipeline",
+};
+
+const AGENT_COLORS: Record<string, string> = {
+  "Nova Act": "text-sky-400 bg-sky-500/10 border-sky-500/20",
+  "Nova 2 Lite": "text-purple-400 bg-purple-500/10 border-purple-500/20",
+  "Human-in-the-Loop": "text-orange-400 bg-orange-500/10 border-orange-500/20",
+  "NovaGuard": "text-nova-400 bg-nova-500/10 border-nova-500/20",
+  "Pipeline": "text-gray-400 bg-gray-500/10 border-gray-500/20",
+};
+
 function describeEvent(event: AuditEvent): string {
   const d = event.data;
   switch (event.event) {
     case "run_started":
-      return `Audit started for ${d.url}`;
-    case "crawl_step":
-      return `Step ${d.step_number}: ${String(d.action).replace(/_/g, " ")}`;
+      return `Audit pipeline started for ${d.url}`;
+    case "crawl_step": {
+      const actions: Record<string, string> = {
+        page_load: "Loading page and capturing initial DOM",
+        keyboard_navigation: "Testing keyboard navigation and focus order",
+        interactive_elements: "Inspecting interactive elements for a11y",
+        form_inspection: "Auditing form inputs and labels",
+      };
+      return `Step ${d.step_number}: ${actions[d.action as string] ?? String(d.action).replace(/_/g, " ")}`;
+    }
     case "crawl_complete":
-      return `Crawl complete \u2014 ${d.total_steps} steps, ${d.screenshots_count} screenshots`;
+      return `Browser crawl complete \u2014 ${d.total_steps} steps, ${d.screenshots_count} screenshots captured`;
     case "finding_created":
-      return `Finding: ${d.title} [${d.severity}]`;
+      return `Violation found: ${d.title} [${String(d.severity).toUpperCase()}]`;
     case "analysis_complete":
-      return `Analysis complete \u2014 ${d.total_findings} findings`;
+      return `Multimodal analysis complete \u2014 ${d.total_findings} WCAG violations identified`;
     case "diff_ready":
-      return `Fix patch ready for finding ${d.finding_id}`;
+      return `Fix patch generated for finding ${d.finding_id}`;
     case "approval_required":
-      return `Approval required \u2014 ${d.diffs_pending} diff(s) pending`;
+      return `Human approval required \u2014 ${d.diffs_pending} fix(es) pending review`;
     case "approval_received":
-      return `Approved by ${d.approved_by}`;
+      return `Approved by ${d.approved_by} \u2014 proceeding to apply fixes`;
     case "apply_started":
-      return `Applying fix for finding ${d.finding_id}...`;
+      return `Applying fix for ${d.finding_id} via browser automation...`;
     case "apply_done":
-      return `Fix applied for finding ${d.finding_id}`;
+      return `Fix successfully applied for ${d.finding_id}`;
     case "verify_done":
-      return `Verification ${d.passed ? "passed" : "failed"}: ${d.details}`;
+      return d.passed
+        ? `Verification passed: ${d.details}`
+        : `Verification failed: ${d.details}`;
     case "run_completed": {
       const s = d.summary as { total: number; fixed: number; verified: number };
-      return `Run complete \u2014 ${s.fixed}/${s.total} fixed, ${s.verified} verified`;
+      return `Audit complete \u2014 ${s.fixed}/${s.total} issues fixed, ${s.verified} verified`;
     }
     case "run_failed":
-      return `Run failed: ${d.error ?? "unknown error"}`;
+      return `Pipeline failed: ${d.error ?? "unknown error"}`;
     case "fix_retry":
-      return `Retrying fix for finding ${d.finding_id} (attempt ${d.attempt})`;
+      return `Retrying fix for ${d.finding_id} (attempt ${d.attempt}) \u2014 ${d.reason}`;
     case "batch_progress":
-      return `${String(d.stage).charAt(0).toUpperCase()}${String(d.stage).slice(1)}: ${d.current} of ${d.total}`;
+      return `${String(d.stage).charAt(0).toUpperCase()}${String(d.stage).slice(1)}: processing ${d.current} of ${d.total}`;
     default:
       return event.event;
   }
@@ -129,8 +167,13 @@ export function Timeline({ events, runId }: Props) {
 
   if (!runId) {
     return (
-      <div className="flex items-center justify-center h-full text-gray-500 text-sm p-4">
-        Start an audit to see the live timeline.
+      <div className="flex flex-col items-center justify-center h-full text-gray-500 text-sm p-6 gap-3">
+        <Bot className="w-8 h-8 text-gray-600" aria-hidden="true" />
+        <p className="text-center">
+          Enter a URL and click <strong className="text-gray-400">Start Audit</strong> to begin.
+          <br />
+          <span className="text-gray-600 text-xs">Events will stream here in real-time as agents work.</span>
+        </p>
       </div>
     );
   }
@@ -145,6 +188,8 @@ export function Timeline({ events, runId }: Props) {
         {events.map((ev, i) => {
           const Icon = EVENT_ICONS[ev.event] ?? Flag;
           const color = EVENT_COLORS[ev.event] ?? "text-gray-400";
+          const agent = EVENT_AGENT[ev.event] ?? "Pipeline";
+          const agentColor = AGENT_COLORS[agent] ?? AGENT_COLORS["Pipeline"];
           const hasScreenshot = ev.event === "crawl_step" && ev.data.screenshot_path;
           const screenshotUrl = hasScreenshot
             ? `${getApiUrl()}/runs/${ev.run_id}/screenshots/${ev.data.screenshot_path}`
@@ -171,6 +216,23 @@ export function Timeline({ events, runId }: Props) {
                 </div>
 
                 <div className="flex-1 min-w-0">
+                  {/* Agent badge */}
+                  <div className="flex items-center gap-1.5 mb-0.5">
+                    <span
+                      className={cn(
+                        "inline-flex items-center px-1.5 py-0 rounded text-[9px] font-semibold border leading-tight",
+                        agentColor
+                      )}
+                    >
+                      {agent}
+                    </span>
+                    {hasScreenshot && (
+                      <span className="inline-flex items-center gap-0.5 text-[9px] text-sky-400">
+                        <Camera className="w-2.5 h-2.5" aria-hidden="true" />
+                        screenshot
+                      </span>
+                    )}
+                  </div>
                   <p className="text-sm text-gray-300 leading-snug">{describeEvent(ev)}</p>
                   <p className="text-[11px] text-gray-500 mt-0.5">{formatTime(ev.timestamp)}</p>
                 </div>
