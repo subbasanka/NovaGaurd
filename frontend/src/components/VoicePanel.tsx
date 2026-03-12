@@ -457,7 +457,7 @@ export function VoicePanel({ runId, findings, onVoiceCommand }: Props) {
       )}
 
       {/* Prompt chips — shown when not streaming */}
-      {!isStreaming && !isConnecting && (
+      {/* {!isStreaming && !isConnecting && (
         <div className="flex items-center gap-1.5 flex-shrink-0">
           <MessageSquare className="w-3 h-3 text-gray-600 flex-shrink-0" aria-hidden="true" />
           {PROMPT_CHIPS.slice(0, 3).map((chip) => (
@@ -470,7 +470,7 @@ export function VoicePanel({ runId, findings, onVoiceCommand }: Props) {
             </button>
           ))}
         </div>
-      )}
+      )} */}
     </div>
   );
 }
