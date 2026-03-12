@@ -1,8 +1,15 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Mic, Square, MicOff, Volume2 } from "lucide-react";
+import { Mic, Square, MicOff, Volume2, MessageSquare } from "lucide-react";
 import type { Finding } from "../types";
 import { cn } from "../lib/cn";
+
+const PROMPT_CHIPS = [
+  { label: "Explain critical finding", action: "explain", arg: "1" },
+  { label: "Approve fix", action: "approve" },
+  { label: "Fix all issues", action: "fix_all" },
+  { label: "Summarize findings", action: "explain", arg: "1" },
+];
 
 export interface VoiceCommand {
   action: string;
@@ -447,6 +454,22 @@ export function VoicePanel({ runId, findings, onVoiceCommand }: Props) {
         <p className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-1.5 max-w-xs" role="alert">
           {error}
         </p>
+      )}
+
+      {/* Prompt chips — shown when not streaming */}
+      {!isStreaming && !isConnecting && (
+        <div className="flex items-center gap-1.5 flex-shrink-0">
+          <MessageSquare className="w-3 h-3 text-gray-600 flex-shrink-0" aria-hidden="true" />
+          {PROMPT_CHIPS.slice(0, 3).map((chip) => (
+            <button
+              key={chip.label}
+              onClick={() => onVoiceCommandRef.current?.({ action: chip.action, arg: chip.arg })}
+              className="px-2 py-1 rounded-md text-[10px] font-medium text-gray-400 bg-surface border border-surface-border hover:bg-surface-overlay hover:text-gray-300 transition-colors whitespace-nowrap"
+            >
+              {chip.label}
+            </button>
+          ))}
+        </div>
       )}
     </div>
   );
