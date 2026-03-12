@@ -1,6 +1,6 @@
 import { useState, useCallback, useMemo } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Download } from "lucide-react";
+import { Download, CheckCircle, XCircle, Shield, RefreshCw } from "lucide-react";
 import type { Diff, Finding } from "./types";
 import { getApiUrl } from "./api";
 import { useAuditWebSocket } from "./hooks/useAuditWebSocket";
@@ -52,6 +52,10 @@ export default function App() {
     if (!selectedDiff) return null;
     return verifyResults.find((r) => r.finding_id === selectedDiff.finding_id) ?? null;
   }, [selectedDiff, verifyResults]);
+
+  // Computed summary stats
+  const fixedCount = useMemo(() => verifyResults.filter((r) => r.passed).length, [verifyResults]);
+  const failedCount = useMemo(() => verifyResults.filter((r) => !r.passed).length, [verifyResults]);
 
   async function startAudit() {
     setError(null);
@@ -134,7 +138,7 @@ export default function App() {
         />
       </header>
 
-      {/* Summary banner when complete */}
+      {/* Final outcome summary card when complete */}
       <AnimatePresence>
         {status === "complete" && summary && (
           <motion.div
@@ -145,21 +149,55 @@ export default function App() {
             role="status"
             aria-live="polite"
           >
-            <div className="bg-gradient-to-r from-emerald-600/20 to-emerald-500/10 border-b border-emerald-500/30 text-emerald-300 text-sm font-medium px-6 py-2.5 flex items-center gap-6">
-              <span className="font-semibold">Audit complete</span>
-              <span>Total: {summary.total}</span>
-              <span>Fixed: {summary.fixed}</span>
-              <span>Verified: {summary.verified}</span>
-              {findings.length > 0 && (
+            <div className="bg-gradient-to-r from-emerald-600/15 via-emerald-500/10 to-surface border-b border-emerald-500/30 px-6 py-3">
+              <div className="flex items-center gap-6">
+                {/* Score */}
                 <AccessibilityScore score={score} />
-              )}
-              <button
-                onClick={downloadReport}
-                className="ml-auto flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-semibold bg-emerald-600 text-white hover:bg-emerald-500 transition-colors"
-              >
-                <Download className="w-3.5 h-3.5" aria-hidden="true" />
-                Download Report
-              </button>
+
+                {/* Summary stats */}
+                <div className="flex items-center gap-4 text-sm">
+                  <div className="flex items-center gap-1.5">
+                    <Shield className="w-4 h-4 text-gray-400" aria-hidden="true" />
+                    <span className="text-gray-400">Total: <strong className="text-gray-200">{summary.total}</strong></span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <CheckCircle className="w-4 h-4 text-emerald-400" aria-hidden="true" />
+                    <span className="text-gray-400">Fixed: <strong className="text-emerald-300">{summary.fixed}</strong></span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <CheckCircle className="w-4 h-4 text-teal-400" aria-hidden="true" />
+                    <span className="text-gray-400">Verified: <strong className="text-teal-300">{summary.verified}</strong></span>
+                  </div>
+                  {failedCount > 0 && (
+                    <div className="flex items-center gap-1.5">
+                      <XCircle className="w-4 h-4 text-red-400" aria-hidden="true" />
+                      <span className="text-gray-400">Failed: <strong className="text-red-300">{failedCount}</strong></span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Actions */}
+                <div className="ml-auto flex items-center gap-2">
+                  <button
+                    onClick={downloadReport}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold bg-emerald-600 text-white hover:bg-emerald-500 transition-colors shadow-md"
+                  >
+                    <Download className="w-3.5 h-3.5" aria-hidden="true" />
+                    Download Report
+                  </button>
+                  <button
+                    onClick={() => {
+                      setRunId(null);
+                      setSelectedDiff(null);
+                      try { sessionStorage.removeItem("novaguard_run_id"); } catch { /* ignore */ }
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold bg-surface text-gray-300 hover:bg-surface-overlay border border-surface-border transition-colors"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" aria-hidden="true" />
+                    New Audit
+                  </button>
+                </div>
+              </div>
             </div>
           </motion.div>
         )}
@@ -178,9 +216,10 @@ export default function App() {
             aria-label={`Accessibility score: ${score} out of 100`}
           >
             <div className="px-6 py-2 bg-surface-raised flex items-center gap-4">
-              <AccessibilityScore score={score} />
+              <AccessibilityScore score={score} compact />
               <span className="text-xs text-gray-500">
                 {findings.length} finding{findings.length !== 1 ? "s" : ""} detected
+                {fixedCount > 0 && ` · ${fixedCount} fixed`}
               </span>
               {batchProgress && (
                 <span className="text-xs text-nova-400 font-medium ml-auto">
@@ -262,10 +301,13 @@ export default function App() {
             role="region"
             aria-label="Voice assistant"
           >
-            <div className="px-4 py-2 border-b border-surface-border">
+            <div className="px-4 py-2 border-b border-surface-border flex items-center gap-2">
               <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
                 Ask Nova 2 Sonic
               </h2>
+              <span className="inline-flex items-center px-1.5 py-0 rounded text-[9px] font-semibold border text-cyan-400 bg-cyan-500/10 border-cyan-500/20 leading-tight">
+                Nova 2 Sonic
+              </span>
             </div>
             <VoicePanel runId={runId} findings={findings} onVoiceCommand={handleVoiceCommand} />
           </motion.div>
