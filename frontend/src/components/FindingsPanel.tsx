@@ -125,53 +125,63 @@ export function FindingsPanel({ findings, diffs, verifyResults, onSelectDiff, on
             transition={{ duration: 0.2 }}
             role="listitem"
             className={cn(
-              "glass rounded-lg overflow-hidden transition-colors border-l-2",
+              "glass rounded-lg transition-colors border-l-2",
               config.border,
               selectedDiffId === f.id
                 ? "ring-1 ring-nova-500/50 shadow-glow-sm"
                 : "hover:bg-surface-overlay/50"
             )}
           >
-            {/* Header row */}
+            {/* Header — stacked layout for narrow column */}
             <button
               onClick={() => toggle(f.id)}
-              className="w-full flex items-center gap-2.5 p-3 text-left focus:outline-none"
+              className="w-full p-3 text-left focus:outline-none"
               aria-expanded={isOpen}
               aria-controls={`finding-${f.id}`}
             >
-              <SevIcon className={cn("w-4 h-4 flex-shrink-0", config.accent)} aria-hidden="true" />
-              <span
-                className={cn(
-                  "px-2 py-0.5 rounded text-[10px] font-bold border uppercase tracking-wide",
-                  config.badge
-                )}
-              >
-                {f.severity}
-              </span>
-              {/* Full title — no truncation */}
-              <span className="flex-1 text-sm font-medium text-gray-200 leading-snug">{f.title}</span>
-              {/* Per-finding status badge */}
-              {verify && (
-                verify.passed
-                  ? <span className="flex items-center gap-1 text-[10px] text-emerald-400 font-semibold flex-shrink-0">
-                      <CheckCircle className="w-3.5 h-3.5" aria-label="Fix verified" /> Fixed
-                    </span>
-                  : <span className="flex items-center gap-1 text-[10px] text-red-400 font-semibold flex-shrink-0">
-                      <XCircle className="w-3.5 h-3.5" aria-label="Fix failed" /> Failed
-                    </span>
-              )}
-              {!verify && diff && (
-                <span className="text-[10px] text-nova-400 font-semibold flex-shrink-0 bg-nova-500/10 px-1.5 py-0.5 rounded border border-nova-500/20">
-                  FIX READY
+              {/* Row 1: severity badge + status + chevron */}
+              <div className="flex items-center gap-1.5 mb-1.5">
+                <SevIcon className={cn("w-3.5 h-3.5 flex-shrink-0", config.accent)} aria-hidden="true" />
+                <span
+                  className={cn(
+                    "px-1.5 py-0.5 rounded text-[10px] font-bold border uppercase tracking-wide leading-none",
+                    config.badge
+                  )}
+                >
+                  {f.severity}
                 </span>
-              )}
-              <ChevronDown
-                className={cn(
-                  "w-4 h-4 text-gray-500 transition-transform flex-shrink-0",
-                  isOpen && "rotate-180"
+                {/* WCAG ref tags inline */}
+                {f.wcag_refs.slice(0, 2).map((ref) => (
+                  <span key={ref} className="px-1.5 py-0.5 rounded text-[9px] font-medium text-nova-400 bg-nova-500/10 border border-nova-500/20 leading-none">
+                    {ref}
+                  </span>
+                ))}
+                <span className="flex-1" />
+                {/* Per-finding status badge */}
+                {verify && (
+                  verify.passed
+                    ? <span className="flex items-center gap-0.5 text-[10px] text-emerald-400 font-semibold">
+                        <CheckCircle className="w-3 h-3" aria-label="Fix verified" /> Fixed
+                      </span>
+                    : <span className="flex items-center gap-0.5 text-[10px] text-red-400 font-semibold">
+                        <XCircle className="w-3 h-3" aria-label="Fix failed" /> Failed
+                      </span>
                 )}
-                aria-hidden="true"
-              />
+                {!verify && diff && (
+                  <span className="text-[9px] text-nova-400 font-semibold bg-nova-500/10 px-1.5 py-0.5 rounded border border-nova-500/20 leading-none">
+                    FIX
+                  </span>
+                )}
+                <ChevronDown
+                  className={cn(
+                    "w-3.5 h-3.5 text-gray-500 transition-transform flex-shrink-0",
+                    isOpen && "rotate-180"
+                  )}
+                  aria-hidden="true"
+                />
+              </div>
+              {/* Row 2: full title — never truncated */}
+              <p className="text-sm font-medium text-gray-200 leading-snug">{f.title}</p>
             </button>
 
             {/* Expanded body */}
