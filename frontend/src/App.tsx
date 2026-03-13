@@ -157,6 +157,15 @@ export default function App() {
     }
   }
 
+  async function cancelAudit() {
+    if (!runId) return;
+    try {
+      await fetch(`${getApiUrl()}/runs/${runId}/cancel`, { method: "POST" });
+    } catch {
+      setError("Failed to cancel audit");
+    }
+  }
+
   async function approveFixes() {
     if (!runId) return;
     await fetch(`${getApiUrl()}/runs/${runId}/approve`, { method: "POST" });
@@ -257,6 +266,7 @@ export default function App() {
           targetUrl={targetUrl}
           onUrlChange={setTargetUrl}
           onStartAudit={startAudit}
+          onCancelAudit={cancelAudit}
           status={status}
         />
       </header>

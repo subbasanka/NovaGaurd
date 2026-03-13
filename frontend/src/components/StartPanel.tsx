@@ -1,4 +1,4 @@
-import { Loader2, Shield, Play } from "lucide-react";
+import { Loader2, Shield, Play, StopCircle } from "lucide-react";
 import { cn } from "../lib/cn";
 import type { RunStatus } from "../types";
 
@@ -6,6 +6,7 @@ interface Props {
   targetUrl: string;
   onUrlChange: (url: string) => void;
   onStartAudit: () => void;
+  onCancelAudit?: () => void;
   status: RunStatus;
 }
 
@@ -33,7 +34,7 @@ const STATUS_LABELS: Record<RunStatus, string> = {
   failed: "Failed",
 };
 
-export function StartPanel({ targetUrl, onUrlChange, onStartAudit, status }: Props) {
+export function StartPanel({ targetUrl, onUrlChange, onStartAudit, onCancelAudit, status }: Props) {
   const isActive = status !== "idle" && status !== "complete" && status !== "failed";
 
   return (
@@ -73,24 +74,34 @@ export function StartPanel({ targetUrl, onUrlChange, onStartAudit, status }: Pro
         )}
       />
 
-      {/* Start button */}
-      <button
-        onClick={onStartAudit}
-        disabled={isActive || !targetUrl.trim()}
-        className={cn(
-          "flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-semibold transition-all",
-          "bg-nova-600 text-white hover:bg-nova-500 shadow-glow-sm hover:shadow-glow",
-          "disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none disabled:hover:bg-nova-600"
-        )}
-        aria-label="Start accessibility audit"
-      >
-        {isActive ? (
-          <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
-        ) : (
+      {/* Start / Cancel buttons */}
+      {isActive ? (
+        <button
+          onClick={onCancelAudit}
+          className={cn(
+            "flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-semibold transition-all",
+            "bg-red-600 text-white hover:bg-red-500 shadow-md hover:shadow-lg"
+          )}
+          aria-label="Cancel running audit"
+        >
+          <StopCircle className="w-4 h-4" aria-hidden="true" />
+          Cancel
+        </button>
+      ) : (
+        <button
+          onClick={onStartAudit}
+          disabled={!targetUrl.trim()}
+          className={cn(
+            "flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-semibold transition-all",
+            "bg-nova-600 text-white hover:bg-nova-500 shadow-glow-sm hover:shadow-glow",
+            "disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none disabled:hover:bg-nova-600"
+          )}
+          aria-label="Start accessibility audit"
+        >
           <Play className="w-4 h-4" aria-hidden="true" />
-        )}
-        Start Audit
-      </button>
+          Start Audit
+        </button>
+      )}
 
       {/* Status badge */}
       <span
