@@ -13,6 +13,7 @@ import type { VoiceCommand } from "./components/VoicePanel";
 import { ErrorToast } from "./components/ErrorToast";
 import { AccessibilityScore } from "./components/AccessibilityScore";
 import { RecentRunsPanel } from "./components/RecentRunsPanel";
+import { NewProjectModal } from "./components/NewProjectModal";
 
 function getSavedRunId(): string | null {
   try {
@@ -42,6 +43,7 @@ export default function App() {
   const [baselineRunId, setBaselineRunId] = useState<string | null>(null);
   const [recentRuns, setRecentRuns] = useState<RunListItem[]>([]);
   const [regression, setRegression] = useState<RegressionSummary | null>(null);
+  const [showNewProject, setShowNewProject] = useState(false);
 
   const handleRunInvalid = useCallback(() => {
     setRunId(null);
@@ -194,6 +196,29 @@ export default function App() {
     loadProjectRuns(projectId);
   }
 
+  async function createProject(name: string, url: string) {
+    try {
+      const res = await fetch(`${getApiUrl()}/projects`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, default_url: url }),
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { detail?: string };
+        setError(data.detail ?? "Failed to create project");
+        return;
+      }
+      const created = (await res.json()) as Project;
+      setProjects((prev) => [...prev, created]);
+      setProjectId(created.id);
+      setTargetUrl(created.default_url);
+      setBaselineRunId(null);
+      setShowNewProject(false);
+    } catch {
+      setError("Failed to create project");
+    }
+  }
+
   function downloadReport() {
     if (!runId) return;
     window.open(`${getApiUrl()}/runs/${runId}/report`, "_blank");
@@ -241,6 +266,11 @@ export default function App() {
             value={projectId ?? ""}
             onChange={(e) => {
               const nextId = e.target.value;
+              if (nextId === "__new__") {
+                e.target.value = projectId ?? "";
+                setShowNewProject(true);
+                return;
+              }
               setProjectId(nextId);
               const p = projects.find((item) => item.id === nextId);
               if (p) {
@@ -255,6 +285,7 @@ export default function App() {
                 {project.name}
               </option>
             ))}
+            <option value="__new__">+ New Project</option>
           </select>
           {baselineRunId && (
             <span className="text-[11px] text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded px-2 py-1">
@@ -466,6 +497,12 @@ export default function App() {
           />
         )}
       </AnimatePresence>
+
+      <NewProjectModal
+        open={showNewProject}
+        onClose={() => setShowNewProject(false)}
+        onCreate={createProject}
+      />
     </div>
   );
 }
