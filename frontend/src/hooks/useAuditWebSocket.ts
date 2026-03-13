@@ -101,6 +101,14 @@ function deriveStateFromEvent(
       setSummary(event.data.summary as AuditState["summary"]);
       setBatchProgress(null);
       break;
+    case "run_cancelled":
+      setStatus("failed");
+      setRunError((event.data?.reason as string) ?? "Audit cancelled");
+      setBatchProgress(null);
+      break;
+    case "run_retrying":
+      setStatus("crawling");
+      break;
     case "run_failed":
       setStatus("failed");
       setRunError((event.data?.error as string) ?? "Audit failed");

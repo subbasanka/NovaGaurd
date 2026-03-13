@@ -190,9 +190,13 @@ export function Timeline({ events, runId }: Props) {
           const color = EVENT_COLORS[ev.event] ?? "text-gray-400";
           const agent = EVENT_AGENT[ev.event] ?? "Pipeline";
           const agentColor = AGENT_COLORS[agent] ?? AGENT_COLORS["Pipeline"];
-          const hasScreenshot = ev.event === "crawl_step" && ev.data.screenshot_path;
+          const screenshotPath =
+            ev.event === "crawl_step" && typeof ev.data.screenshot_path === "string"
+              ? ev.data.screenshot_path
+              : null;
+          const hasScreenshot = !!screenshotPath;
           const screenshotUrl = hasScreenshot
-            ? `${getApiUrl()}/runs/${ev.run_id}/screenshots/${ev.data.screenshot_path}`
+            ? `${getApiUrl()}/runs/${ev.run_id}/screenshots/${screenshotPath}`
             : null;
 
           return (
@@ -244,15 +248,15 @@ export function Timeline({ events, runId }: Props) {
                   onClick={() =>
                     openScreenshot(
                       screenshotUrl,
-                      `Screenshot from crawl step ${ev.data.step_number}: ${String(ev.data.action).replace(/_/g, " ")}`
+                      `Screenshot from crawl step ${String(ev.data.step_number)}: ${String(ev.data.action).replace(/_/g, " ")}`
                     )
                   }
                   className="relative group mt-2 w-full rounded-md overflow-hidden border border-surface-border hover:border-nova-500/40 transition-colors cursor-pointer"
-                  aria-label={`View full screenshot from step ${ev.data.step_number}`}
+                  aria-label={`View full screenshot from step ${String(ev.data.step_number)}`}
                 >
                   <img
                     src={screenshotUrl}
-                    alt={`Screenshot from crawl step ${ev.data.step_number}: ${String(ev.data.action).replace(/_/g, " ")}`}
+                    alt={`Screenshot from crawl step ${String(ev.data.step_number)}: ${String(ev.data.action).replace(/_/g, " ")}`}
                     className="w-full h-auto max-h-40 object-cover rounded-md"
                     loading="lazy"
                   />

@@ -1,15 +1,8 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Mic, Square, MicOff, Volume2, MessageSquare } from "lucide-react";
+import { Mic, Square, MicOff, Volume2 } from "lucide-react";
 import type { Finding } from "../types";
 import { cn } from "../lib/cn";
-
-const PROMPT_CHIPS = [
-  { label: "Explain critical finding", action: "explain", arg: "1" },
-  { label: "Approve fix", action: "approve" },
-  { label: "Fix all issues", action: "fix_all" },
-  { label: "Summarize findings", action: "explain", arg: "1" },
-];
 
 export interface VoiceCommand {
   action: string;

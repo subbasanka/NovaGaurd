@@ -11,6 +11,8 @@ export interface AuditEvent {
 export interface RunFailedData {
   error: string;
   stage?: string;
+  error_code?: string;
+  retryable?: boolean;
 }
 
 export interface Finding {
@@ -63,4 +65,39 @@ export interface StartRunResponse {
 /** API error response (4xx, 5xx) */
 export interface ApiErrorResponse {
   detail: string;
+}
+
+export interface Project {
+  id: string;
+  name: string;
+  default_url: string;
+  baseline_run_id?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RunListItem {
+  run_id: string;
+  project_id: string | null;
+  url: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+  completed_at?: string | null;
+  score?: number;
+  total_findings: number;
+  summary?: { total: number; fixed: number; verified: number } | null;
+}
+
+export interface RegressionSummary {
+  project_id: string;
+  baseline_run_id: string;
+  run_id: string;
+  new_issues: number;
+  resolved_issues: number;
+  severity_of_new: {
+    critical: number;
+    major: number;
+    minor: number;
+  };
 }

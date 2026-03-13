@@ -1,7 +1,7 @@
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useEffect } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Download, CheckCircle, XCircle, Shield, RefreshCw } from "lucide-react";
-import type { Diff, Finding } from "./types";
+import type { Diff, Finding, Project, RegressionSummary, RunListItem } from "./types";
 import { getApiUrl } from "./api";
 import { useAuditWebSocket } from "./hooks/useAuditWebSocket";
 import { StartPanel } from "./components/StartPanel";
@@ -12,6 +12,7 @@ import { VoicePanel } from "./components/VoicePanel";
 import type { VoiceCommand } from "./components/VoicePanel";
 import { ErrorToast } from "./components/ErrorToast";
 import { AccessibilityScore } from "./components/AccessibilityScore";
+import { RecentRunsPanel } from "./components/RecentRunsPanel";
 
 function getSavedRunId(): string | null {
   try {
@@ -36,6 +37,11 @@ export default function App() {
   const [targetUrl, setTargetUrl] = useState("http://localhost:8080");
   const [selectedDiff, setSelectedDiff] = useState<Diff | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [projectId, setProjectId] = useState<string | null>(null);
+  const [baselineRunId, setBaselineRunId] = useState<string | null>(null);
+  const [recentRuns, setRecentRuns] = useState<RunListItem[]>([]);
+  const [regression, setRegression] = useState<RegressionSummary | null>(null);
 
   const handleRunInvalid = useCallback(() => {
     setRunId(null);
@@ -44,6 +50,65 @@ export default function App() {
 
   const { events, findings, diffs, status, verifyResults, batchProgress, summary, runError, clearRunError } =
     useAuditWebSocket(runId, handleRunInvalid);
+
+  const loadProjects = useCallback(async () => {
+    try {
+      const res = await fetch(`${getApiUrl()}/projects`);
+      if (!res.ok) return;
+      const data = (await res.json()) as { projects?: Project[] };
+      const items = data.projects ?? [];
+      setProjects(items);
+      if (!projectId && items.length > 0) {
+        setProjectId(items[0].id);
+        setTargetUrl(items[0].default_url || "http://localhost:8080");
+        setBaselineRunId(items[0].baseline_run_id ?? null);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [projectId]);
+
+  const loadProjectRuns = useCallback(async (pid: string) => {
+    try {
+      const res = await fetch(`${getApiUrl()}/projects/${pid}/runs?limit=20`);
+      if (!res.ok) return;
+      const data = (await res.json()) as { runs?: RunListItem[]; project?: Project };
+      setRecentRuns(data.runs ?? []);
+      if (data.project) {
+        setBaselineRunId(data.project.baseline_run_id ?? null);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  const loadRegression = useCallback(async (pid: string, rid: string) => {
+    try {
+      const res = await fetch(`${getApiUrl()}/projects/${pid}/regressions?run_id=${encodeURIComponent(rid)}`);
+      if (!res.ok) {
+        setRegression(null);
+        return;
+      }
+      const data = (await res.json()) as RegressionSummary;
+      setRegression(data);
+    } catch {
+      setRegression(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadProjects();
+  }, [loadProjects]);
+
+  useEffect(() => {
+    if (!projectId) return;
+    loadProjectRuns(projectId);
+  }, [projectId, loadProjectRuns, status, runId]);
+
+  useEffect(() => {
+    if (!projectId || !runId || !baselineRunId) return;
+    loadRegression(projectId, runId);
+  }, [projectId, runId, baselineRunId, loadRegression]);
 
   const score = useMemo(() => computeScore(findings), [findings]);
 
@@ -58,14 +123,18 @@ export default function App() {
   const failedCount = useMemo(() => verifyResults.filter((r) => !r.passed).length, [verifyResults]);
 
   async function startAudit() {
+    if (!projectId) {
+      setError("No project available. Backend /projects endpoint may be unavailable.");
+      return;
+    }
     setError(null);
     try {
       const res = await fetch(`${getApiUrl()}/runs/start`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: targetUrl }),
+        body: JSON.stringify({ url: targetUrl, project_id: projectId }),
       });
-      const data = (await res.json()) as { run_id?: string; detail?: string };
+      const data = (await res.json()) as { run_id?: string; project_id?: string; detail?: string };
       if (!res.ok) {
         setError(data.detail ?? `Request failed (${res.status})`);
         return;
@@ -76,6 +145,7 @@ export default function App() {
       }
       setSelectedDiff(null);
       setRunId(data.run_id);
+      if (data.project_id) setProjectId(data.project_id);
       try {
         sessionStorage.setItem("novaguard_run_id", data.run_id);
       } catch {
@@ -90,6 +160,29 @@ export default function App() {
   async function approveFixes() {
     if (!runId) return;
     await fetch(`${getApiUrl()}/runs/${runId}/approve`, { method: "POST" });
+  }
+
+  async function openRun(selectedRunId: string) {
+    setSelectedDiff(null);
+    setRunId(selectedRunId);
+    try {
+      sessionStorage.setItem("novaguard_run_id", selectedRunId);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  async function markBaseline(selectedRunId: string) {
+    if (!projectId) return;
+    const res = await fetch(`${getApiUrl()}/projects/${projectId}/baseline/${selectedRunId}`, {
+      method: "POST",
+    });
+    if (!res.ok) return;
+    setBaselineRunId(selectedRunId);
+    if (runId) {
+      loadRegression(projectId, runId);
+    }
+    loadProjectRuns(projectId);
   }
 
   function downloadReport() {
@@ -130,6 +223,36 @@ export default function App() {
 
       {/* Header */}
       <header>
+        <div className="px-6 py-2 border-b border-surface-border bg-surface flex items-center gap-3">
+          <label htmlFor="project-select" className="text-xs text-gray-400 font-semibold uppercase tracking-wider">
+            Project
+          </label>
+          <select
+            id="project-select"
+            value={projectId ?? ""}
+            onChange={(e) => {
+              const nextId = e.target.value;
+              setProjectId(nextId);
+              const p = projects.find((item) => item.id === nextId);
+              if (p) {
+                setTargetUrl(p.default_url);
+                setBaselineRunId(p.baseline_run_id ?? null);
+              }
+            }}
+            className="px-2.5 py-1.5 rounded-md text-xs bg-surface-raised border border-surface-border text-gray-200"
+          >
+            {projects.map((project) => (
+              <option key={project.id} value={project.id}>
+                {project.name}
+              </option>
+            ))}
+          </select>
+          {baselineRunId && (
+            <span className="text-[11px] text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded px-2 py-1">
+              Baseline set
+            </span>
+          )}
+        </div>
         <StartPanel
           targetUrl={targetUrl}
           onUrlChange={setTargetUrl}
@@ -240,6 +363,14 @@ export default function App() {
           className="w-80 flex-shrink-0 flex flex-col bg-surface-raised border-r border-surface-border overflow-y-auto"
           aria-label="Audit timeline"
         >
+          <RecentRunsPanel
+            runs={recentRuns}
+            currentRunId={runId}
+            baselineRunId={baselineRunId}
+            regression={regression}
+            onOpenRun={openRun}
+            onSetBaseline={markBaseline}
+          />
           <div className="px-4 py-3 border-b border-surface-border">
             <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
               Live Timeline

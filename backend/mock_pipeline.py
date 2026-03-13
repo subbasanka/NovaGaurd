@@ -11,6 +11,14 @@ def emit_event(run_state: dict, run_id: str, event_type: str, data: dict):
     }
     run_state["events"].append(payload)
     run_state["event_queue"].put_nowait(payload)
+    persist_cb = run_state.get("persist_cb")
+    if callable(persist_cb):
+        persist_cb()
+
+
+def ensure_not_cancelled(run_state: dict):
+    if run_state.get("cancel_requested"):
+        raise asyncio.CancelledError("Run cancelled by user")
 
 
 async def mock_pipeline(run_id: str, run_state: dict):
@@ -20,6 +28,7 @@ async def mock_pipeline(run_id: str, run_state: dict):
 
     # --- Crawl ---
     await asyncio.sleep(0.5)
+    ensure_not_cancelled(run_state)
     emit_event(run_state, run_id, "crawl_step", {
         "step_number": 1,
         "action": "page_load",
@@ -27,6 +36,7 @@ async def mock_pipeline(run_id: str, run_state: dict):
     })
 
     await asyncio.sleep(0.5)
+    ensure_not_cancelled(run_state)
     emit_event(run_state, run_id, "crawl_step", {
         "step_number": 2,
         "action": "keyboard_navigation",
@@ -34,6 +44,7 @@ async def mock_pipeline(run_id: str, run_state: dict):
     })
 
     await asyncio.sleep(0.5)
+    ensure_not_cancelled(run_state)
     emit_event(run_state, run_id, "crawl_step", {
         "step_number": 3,
         "action": "interactive_elements",
@@ -41,6 +52,7 @@ async def mock_pipeline(run_id: str, run_state: dict):
     })
 
     await asyncio.sleep(0.5)
+    ensure_not_cancelled(run_state)
     emit_event(run_state, run_id, "crawl_step", {
         "step_number": 4,
         "action": "form_inspection",
@@ -48,6 +60,7 @@ async def mock_pipeline(run_id: str, run_state: dict):
     })
 
     await asyncio.sleep(0.5)
+    ensure_not_cancelled(run_state)
     emit_event(run_state, run_id, "crawl_complete", {
         "total_steps": 4,
         "screenshots_count": 0,
@@ -56,6 +69,7 @@ async def mock_pipeline(run_id: str, run_state: dict):
 
     # --- Findings ---
     await asyncio.sleep(1.0)
+    ensure_not_cancelled(run_state)
     finding_1 = {
         "id": "f1",
         "title": "Missing alt text on hero image",
@@ -68,6 +82,7 @@ async def mock_pipeline(run_id: str, run_state: dict):
     emit_event(run_state, run_id, "finding_created", finding_1)
 
     await asyncio.sleep(1.0)
+    ensure_not_cancelled(run_state)
     finding_2 = {
         "id": "f2",
         "title": "Low contrast submit button",
@@ -80,6 +95,7 @@ async def mock_pipeline(run_id: str, run_state: dict):
     emit_event(run_state, run_id, "finding_created", finding_2)
 
     await asyncio.sleep(1.0)
+    ensure_not_cancelled(run_state)
     finding_3 = {
         "id": "f3",
         "title": "Unlabeled email input",
@@ -92,6 +108,7 @@ async def mock_pipeline(run_id: str, run_state: dict):
     emit_event(run_state, run_id, "finding_created", finding_3)
 
     await asyncio.sleep(0.5)
+    ensure_not_cancelled(run_state)
     emit_event(run_state, run_id, "analysis_complete", {"total_findings": 3})
     run_state["status"] = "fixing"
 
@@ -122,6 +139,7 @@ async def mock_pipeline(run_id: str, run_state: dict):
 
     for i, diff in enumerate(diffs):
         await asyncio.sleep(0.8)
+        ensure_not_cancelled(run_state)
         emit_event(run_state, run_id, "batch_progress", {
             "stage": "fix",
             "current": i + 1,
@@ -133,10 +151,12 @@ async def mock_pipeline(run_id: str, run_state: dict):
 
     # --- Approval gate ---
     await asyncio.sleep(0.5)
+    ensure_not_cancelled(run_state)
     emit_event(run_state, run_id, "approval_required", {"diffs_pending": len(diffs)})
     run_state["status"] = "awaiting_approval"
 
     while not run_state.get("approved", False):
+        ensure_not_cancelled(run_state)
         await asyncio.sleep(0.5)
 
     await asyncio.sleep(0.2)
@@ -146,6 +166,7 @@ async def mock_pipeline(run_id: str, run_state: dict):
     # --- Batch apply ---
     for i, diff in enumerate(diffs):
         await asyncio.sleep(0.3)
+        ensure_not_cancelled(run_state)
         emit_event(run_state, run_id, "batch_progress", {
             "stage": "apply",
             "current": i + 1,
@@ -170,6 +191,7 @@ async def mock_pipeline(run_id: str, run_state: dict):
 
     for i, vr in enumerate(verify_results):
         await asyncio.sleep(0.3)
+        ensure_not_cancelled(run_state)
         emit_event(run_state, run_id, "batch_progress", {
             "stage": "verify",
             "current": i + 1,
@@ -181,6 +203,7 @@ async def mock_pipeline(run_id: str, run_state: dict):
 
     # --- Retry failed fix (f2) ---
     await asyncio.sleep(0.5)
+    ensure_not_cancelled(run_state)
     emit_event(run_state, run_id, "fix_retry", {
         "finding_id": "f2",
         "attempt": 2,

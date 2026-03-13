@@ -1,4 +1,4 @@
-import { Loader2, Shield, Play, Sparkles } from "lucide-react";
+import { Loader2, Shield, Play } from "lucide-react";
 import { cn } from "../lib/cn";
 import type { RunStatus } from "../types";
 
@@ -47,10 +47,10 @@ export function StartPanel({ targetUrl, onUrlChange, onStartAudit, status }: Pro
           <span className="text-lg font-bold text-gray-100 tracking-tight leading-tight">NovaGuard</span>
           <span className="text-[10px] text-gray-500 leading-tight tracking-wide">AI Accessibility Compliance Agent</span>
         </div>
-        <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/20 text-[9px] font-semibold text-amber-400 uppercase tracking-wider">
+        {/* <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/20 text-[9px] font-semibold text-amber-400 uppercase tracking-wider">
           <Sparkles className="w-2.5 h-2.5" aria-hidden="true" />
           Powered by Amazon Nova
-        </span>
+        </span> */}
       </div>
 
       {/* URL input */}
