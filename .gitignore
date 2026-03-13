@@ -43,6 +43,7 @@ desktop.ini
 # Temp / runtime
 *.log
 *.tmp
+backend/*.db
 
 #claude files
 .claude/

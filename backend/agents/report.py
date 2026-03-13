@@ -3,6 +3,7 @@
 import json
 import logging
 from datetime import datetime, timezone
+from typing import Any
 
 import boto3
 
@@ -103,6 +104,120 @@ def generate_report(run_state: dict) -> str:
 
     # --- Template fallback ---
     return _template_report(run_state["url"], score, findings, diffs, verify_map, fixed_ids, diff_ids)
+
+
+def generate_report_json(run_state: dict[str, Any]) -> dict[str, Any]:
+    findings = run_state.get("findings", [])
+    diffs = run_state.get("diffs", [])
+    events = run_state.get("events", [])
+
+    verify_map: dict[str, dict[str, Any]] = {}
+    for event in events:
+        if event["event"] == "verify_done":
+            verify_map[event["data"]["finding_id"]] = {
+                "passed": event["data"].get("passed", False),
+                "details": event["data"].get("details", ""),
+            }
+
+    score = 100
+    for finding in findings:
+        severity = finding.get("severity", "minor")
+        if severity == "critical":
+            score -= 20
+        elif severity == "major":
+            score -= 10
+        else:
+            score -= 5
+    score = max(0, score)
+
+    diff_map = {d["finding_id"]: d for d in diffs}
+
+    return {
+        "run_id": run_state.get("run_id"),
+        "project_id": run_state.get("project_id"),
+        "url": run_state.get("url"),
+        "status": run_state.get("status"),
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "score": score,
+        "summary": run_state.get("summary"),
+        "findings": [
+            {
+                "id": f.get("id"),
+                "title": f.get("title"),
+                "severity": f.get("severity"),
+                "wcag_refs": f.get("wcag_refs", []),
+                "evidence": f.get("evidence", ""),
+                "recommendation": f.get("recommendation", ""),
+                "has_diff": f.get("id") in diff_map,
+                "verify_result": verify_map.get(f.get("id")),
+            }
+            for f in findings
+        ],
+        "diffs": diffs,
+    }
+
+
+def generate_sarif_report(run_state: dict[str, Any]) -> dict[str, Any]:
+    findings = run_state.get("findings", [])
+
+    results: list[dict[str, Any]] = []
+    rules: dict[str, dict[str, Any]] = {}
+
+    level_map = {"critical": "error", "major": "warning", "minor": "note"}
+
+    for finding in findings:
+        finding_id = finding.get("id", "unknown")
+        wcag_refs = finding.get("wcag_refs", [])
+        first_ref = wcag_refs[0] if wcag_refs else "wcag.unknown"
+        rule_id = f"WCAG.{first_ref}"
+        severity = finding.get("severity", "minor")
+        level = level_map.get(severity, "warning")
+
+        if rule_id not in rules:
+            rules[rule_id] = {
+                "id": rule_id,
+                "name": rule_id,
+                "shortDescription": {"text": f"WCAG {first_ref} accessibility issue"},
+                "fullDescription": {"text": f"Detected accessibility issue mapped to WCAG criterion {first_ref}."},
+            }
+
+        results.append(
+            {
+                "ruleId": rule_id,
+                "level": level,
+                "message": {"text": f"{finding.get('title', 'Accessibility issue')}: {finding.get('recommendation', '')}"},
+                "fingerprints": {"novaguardFindingId": str(finding_id)},
+                "locations": [
+                    {
+                        "physicalLocation": {
+                            "artifactLocation": {"uri": run_state.get("url", "about:blank")}
+                        }
+                    }
+                ],
+                "properties": {
+                    "severity": severity,
+                    "wcag_refs": wcag_refs,
+                    "evidence": finding.get("evidence", ""),
+                },
+            }
+        )
+
+    return {
+        "version": "2.1.0",
+        "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+        "runs": [
+            {
+                "tool": {
+                    "driver": {
+                        "name": "NovaGuard",
+                        "informationUri": "https://github.com/",
+                        "rules": list(rules.values()),
+                    }
+                },
+                "results": results,
+            }
+        ],
+    }
 
 
 def _template_report(

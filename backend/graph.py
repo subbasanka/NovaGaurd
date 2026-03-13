@@ -43,6 +43,14 @@ def _emit(run_state: dict, event_type: str, data: dict) -> None:
     }
     run_state.get("events", []).append(event)
     run_state["event_queue"].put_nowait(event)
+    persist_cb = run_state.get("persist_cb")
+    if callable(persist_cb):
+        persist_cb()
+
+
+def _ensure_not_cancelled(run_state: dict) -> None:
+    if run_state.get("cancel_requested"):
+        raise AgentError("cancelled", "Run cancelled by user")
 
 
 class CrawlNode(MultiAgentBase):
@@ -54,6 +62,7 @@ class CrawlNode(MultiAgentBase):
         self, task: Any, invocation_state: dict | None = None, **kwargs: Any
     ) -> MultiAgentResult:
         run_state = (invocation_state or {})["run_state"]
+        _ensure_not_cancelled(run_state)
         try:
             await crawl_site(run_state["run_id"], run_state["url"], run_state)
         except Exception as exc:
@@ -71,6 +80,7 @@ class AnalyzeNode(MultiAgentBase):
         self, task: Any, invocation_state: dict | None = None, **kwargs: Any
     ) -> MultiAgentResult:
         run_state = (invocation_state or {})["run_state"]
+        _ensure_not_cancelled(run_state)
         loop = asyncio.get_event_loop()
         try:
             findings = await loop.run_in_executor(
@@ -102,6 +112,7 @@ class FixNode(MultiAgentBase):
         self, task: Any, invocation_state: dict | None = None, **kwargs: Any
     ) -> MultiAgentResult:
         run_state = (invocation_state or {})["run_state"]
+        _ensure_not_cancelled(run_state)
         findings = run_state.get("findings", [])
 
         if not findings:
@@ -121,6 +132,7 @@ class FixNode(MultiAgentBase):
         loop = asyncio.get_event_loop()
         diffs = []
         for i, finding in enumerate(top_findings):
+            _ensure_not_cancelled(run_state)
             _emit(run_state, "batch_progress", {
                 "stage": "fix",
                 "current": i + 1,
@@ -151,9 +163,11 @@ class ApprovalGate(MultiAgentBase):
         self, task: Any, invocation_state: dict | None = None, **kwargs: Any
     ) -> MultiAgentResult:
         run_state = (invocation_state or {})["run_state"]
+        _ensure_not_cancelled(run_state)
         _emit(run_state, "approval_required", {"diffs_pending": len(run_state.get("diffs", []))})
 
         while not run_state["approved"]:
+            _ensure_not_cancelled(run_state)
             await asyncio.sleep(0.5)
 
         _emit(run_state, "approval_received", {"approved_by": "user"})
@@ -169,9 +183,11 @@ class ApplyNode(MultiAgentBase):
         self, task: Any, invocation_state: dict | None = None, **kwargs: Any
     ) -> MultiAgentResult:
         run_state = (invocation_state or {})["run_state"]
+        _ensure_not_cancelled(run_state)
         diffs = run_state.get("diffs", [])
 
         for i, diff in enumerate(diffs):
+            _ensure_not_cancelled(run_state)
             _emit(run_state, "batch_progress", {
                 "stage": "apply",
                 "current": i + 1,
@@ -201,9 +217,11 @@ class VerifyNode(MultiAgentBase):
         self, task: Any, invocation_state: dict | None = None, **kwargs: Any
     ) -> MultiAgentResult:
         run_state = (invocation_state or {})["run_state"]
+        _ensure_not_cancelled(run_state)
         diffs = run_state.get("diffs", [])
 
         for i, diff in enumerate(diffs):
+            _ensure_not_cancelled(run_state)
             _emit(run_state, "batch_progress", {
                 "stage": "verify",
                 "current": i + 1,
@@ -241,6 +259,7 @@ class VerifyNode(MultiAgentBase):
         loop = asyncio.get_event_loop()
 
         for fail_event in failed_events[:MAX_FIX_RETRIES]:
+            _ensure_not_cancelled(run_state)
             fid = fail_event["data"]["finding_id"]
             reason = fail_event["data"].get("details", "Unknown failure")
             finding = finding_map.get(fid)
