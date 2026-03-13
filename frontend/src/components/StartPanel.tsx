@@ -79,12 +79,12 @@ export function StartPanel({ targetUrl, onUrlChange, onStartAudit, onCancelAudit
         <button
           onClick={onCancelAudit}
           className={cn(
-            "flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-semibold transition-all",
-            "bg-red-600 text-white hover:bg-red-500 shadow-md hover:shadow-lg"
+            "flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition-all",
+            "bg-transparent text-red-400 border border-red-500/30 hover:bg-red-500/10 hover:border-red-500/50"
           )}
           aria-label="Cancel running audit"
         >
-          <StopCircle className="w-4 h-4" aria-hidden="true" />
+          <StopCircle className="w-3.5 h-3.5" aria-hidden="true" />
           Cancel
         </button>
       ) : (

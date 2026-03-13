@@ -102,7 +102,7 @@ export function FindingsPanel({ findings, diffs, verifyResults, onSelectDiff, on
             whileHover={{ scale: 1.03 }}
             whileTap={{ scale: 0.97 }}
             onClick={onFixAll}
-            className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold bg-emerald-600 text-white hover:bg-emerald-500 transition-colors shadow-md"
+            className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/10 hover:border-emerald-500/50 transition-colors"
           >
             <Zap className="w-3 h-3" aria-hidden="true" />
             Fix All ({diffs.length})

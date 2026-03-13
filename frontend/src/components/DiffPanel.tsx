@@ -38,7 +38,7 @@ export function DiffPanel({ diff, status, runId, onApprove, verifyResult, batchP
             onClick={onApprove}
             className={cn(
               "flex items-center gap-2 px-6 py-2.5 rounded-lg font-semibold transition-all",
-              "bg-emerald-600 text-white hover:bg-emerald-500 shadow-lg"
+              "text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/10 hover:border-emerald-500/50"
             )}
           >
             <ShieldCheck className="w-4 h-4" aria-hidden="true" />
@@ -124,7 +124,7 @@ export function DiffPanel({ diff, status, runId, onApprove, verifyResult, batchP
             onClick={onApprove}
             className={cn(
               "flex items-center gap-2 px-6 py-2.5 rounded-lg font-semibold transition-all",
-              "bg-emerald-600 text-white hover:bg-emerald-500 shadow-lg shadow-emerald-600/20"
+              "text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/10 hover:border-emerald-500/50"
             )}
           >
             <ShieldCheck className="w-4 h-4" aria-hidden="true" />
