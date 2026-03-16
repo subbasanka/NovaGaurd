@@ -1,4 +1,5 @@
-import { Clock3, Flag, GitCompareArrows } from "lucide-react";
+import { useState } from "react";
+import { Clock3, Flag, GitCompareArrows, ChevronDown } from "lucide-react";
 import type { RegressionSummary, RunListItem } from "../types";
 import { cn } from "../lib/cn";
 
@@ -31,12 +32,25 @@ export function RecentRunsPanel({
   onOpenRun,
   onSetBaseline,
 }: Props) {
+  const [collapsed, setCollapsed] = useState(false);
+
   return (
     <div className="border-b border-surface-border p-3 space-y-3">
-      <div className="flex items-center justify-between">
+      <button
+        onClick={() => setCollapsed((prev) => !prev)}
+        className="flex items-center justify-between w-full"
+      >
         <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Recent Audits</h3>
-        <span className="text-[10px] text-gray-500">{runs.length}</span>
-      </div>
+        <div className="flex items-center gap-1.5">
+          <span className="text-[10px] text-gray-500">{runs.length}</span>
+          <ChevronDown
+            className={cn("w-3.5 h-3.5 text-gray-500 transition-transform", collapsed && "-rotate-90")}
+            aria-hidden="true"
+          />
+        </div>
+      </button>
+
+      {collapsed ? null : <>
 
       {regression && (
         <div className="rounded-md border border-surface-border bg-surface p-2.5 text-xs">
@@ -98,6 +112,7 @@ export function RecentRunsPanel({
           </div>
         ))}
       </div>
+      </>}
     </div>
   );
 }
