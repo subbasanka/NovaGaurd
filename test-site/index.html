@@ -3,53 +3,159 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Acme Corp — Test Page</title>
+  <title>Acme Corp — Modern Solutions for Modern Teams</title>
   <style>
-    body { font-family: sans-serif; max-width: 800px; margin: 40px auto; padding: 0 20px; }
-    h1 { color: #222; }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; color: #1a1a2e; background: #fafafa; }
 
     /* Violation 5: WCAG 2.4.7 — removes focus indicator */
     a:focus, button:focus, input:focus { outline: none; }
+
+    /* Navigation */
+    nav { background: #1a1a2e; padding: 0 40px; display: flex; align-items: center; justify-content: space-between; height: 64px; }
+    nav .logo { font-size: 20px; font-weight: 700; color: #fff; letter-spacing: -0.5px; }
+    nav .logo span { color: #6c63ff; }
+    nav .nav-links { display: flex; gap: 32px; align-items: center; }
+    nav .nav-links a { color: #a0a0b8; text-decoration: none; font-size: 14px; font-weight: 500; transition: color 0.2s; }
+    nav .nav-links a:hover { color: #fff; }
+    nav .cta-btn { background: #6c63ff; color: #fff; border: none; padding: 8px 20px; border-radius: 6px; font-size: 14px; font-weight: 600; cursor: pointer; transition: background 0.2s; }
+    nav .cta-btn:hover { background: #5a52e0; }
+
+    /* Hero */
+    .hero { background: linear-gradient(135deg, #1a1a2e 0%, #2d2b55 100%); padding: 80px 40px; text-align: center; color: #fff; }
+    .hero h1 { font-size: 48px; font-weight: 700; line-height: 1.1; margin-bottom: 16px; letter-spacing: -1px; }
+    .hero h1 span { color: #6c63ff; }
+    .hero p { font-size: 18px; color: #a0a0b8; max-width: 600px; margin: 0 auto 32px; line-height: 1.6; }
+    .hero-buttons { display: flex; gap: 12px; justify-content: center; }
+    .hero-buttons .primary { background: #6c63ff; color: #fff; border: none; padding: 14px 32px; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+    .hero-buttons .primary:hover { background: #5a52e0; transform: translateY(-1px); }
+    .hero-buttons .secondary { background: transparent; color: #a0a0b8; border: 1px solid #3a3a5c; padding: 14px 32px; border-radius: 8px; font-size: 16px; font-weight: 500; cursor: pointer; transition: all 0.2s; }
+    .hero-buttons .secondary:hover { border-color: #6c63ff; color: #fff; }
+
+    /* Hero image */
+    .hero-image { margin: 40px auto 0; max-width: 800px; }
+
+    /* Features */
+    .features { padding: 80px 40px; max-width: 1100px; margin: 0 auto; }
+    .features h2 { text-align: center; font-size: 32px; font-weight: 700; margin-bottom: 12px; color: #1a1a2e; }
+    .features .subtitle { text-align: center; color: #6b7280; font-size: 16px; margin-bottom: 48px; }
+    .features-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
+    .feature-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 32px 24px; transition: all 0.2s; }
+    .feature-card:hover { border-color: #6c63ff; box-shadow: 0 4px 24px rgba(108, 99, 255, 0.08); transform: translateY(-2px); }
+    .feature-icon { width: 48px; height: 48px; border-radius: 10px; display: flex; align-items: center; justify-content: center; margin-bottom: 16px; font-size: 24px; }
+    .feature-card h3 { font-size: 18px; font-weight: 600; margin-bottom: 8px; color: #1a1a2e; }
+    .feature-card p { font-size: 14px; color: #6b7280; line-height: 1.6; }
+    .icon-blue { background: #eff6ff; }
+    .icon-green { background: #f0fdf4; }
+    .icon-purple { background: #faf5ff; }
+
+    /* Contact */
+    .contact { background: #f3f4f6; padding: 64px 40px; }
+    .contact-inner { max-width: 500px; margin: 0 auto; text-align: center; }
+    .contact h2 { font-size: 28px; font-weight: 700; margin-bottom: 8px; }
+    .contact p { color: #6b7280; margin-bottom: 24px; font-size: 15px; }
+    .contact-form { display: flex; flex-direction: column; gap: 12px; }
+    .contact-form input, .contact-form textarea { padding: 12px 16px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 14px; font-family: inherit; background: #fff; }
+    .contact-form textarea { height: 100px; resize: vertical; }
+
+    /* Violation 2: WCAG 1.4.3 — button with insufficient contrast (#aaa on #ccc) */
+    .submit-btn { color: #aaa; background: #ccc; padding: 12px 24px; border: none; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer; transition: background 0.2s; }
+
+    /* Footer */
+    footer { background: #1a1a2e; color: #6b7280; padding: 40px; text-align: center; font-size: 13px; }
+    footer .footer-links { display: flex; justify-content: center; gap: 24px; margin-bottom: 16px; }
+    footer .footer-links a { color: #6b7280; text-decoration: none; font-size: 13px; }
+    footer .footer-links a:hover { color: #a0a0b8; }
+
+    /* Violation 4 styling */
+    .clickable-div { display: inline-block; padding: 14px 32px; background: #6c63ff; color: #fff; border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: 600; transition: all 0.2s; }
+    .clickable-div:hover { background: #5a52e0; }
   </style>
 </head>
 <body>
 
-  <h1>Welcome to Acme Corp</h1>
+  <!-- Navigation -->
+  <nav>
+    <div class="logo">Acme<span>Corp</span></div>
+    <div class="nav-links">
+      <a href="#features">Features</a>
+      <a href="#pricing">Pricing</a>
+      <!-- Violation 6: WCAG 2.4.4 — empty link with no text or label -->
+      <a href="#"></a>
+      <a href="#contact">Contact</a>
+      <button class="cta-btn">Get Started</button>
+    </div>
+  </nav>
 
-  <!-- Violation 1: WCAG 1.1.1 — img missing alt attribute -->
-  <img src="hero.png" style="width:100%;max-height:200px;background:#ddd;display:block;">
+  <!-- Hero Section -->
+  <section class="hero">
+    <!-- Violation 7: WCAG 1.3.1 — heading level skip (h1 -> h4) -->
+    <h4 style="font-size:14px;color:#6c63ff;font-weight:600;letter-spacing:2px;text-transform:uppercase;margin-bottom:12px;">
+      Trusted by 10,000+ teams worldwide
+    </h4>
+    <h1>Build Better Products<br><span>Ship Faster</span></h1>
+    <p>The all-in-one platform that helps modern teams collaborate, iterate, and deliver exceptional digital experiences at scale.</p>
+    <div class="hero-buttons">
+      <button class="primary">Start Free Trial</button>
+      <!-- Violation 4: WCAG 2.1.1 — div with onclick not keyboard-accessible -->
+      <div class="clickable-div" onclick="alert('Demo started!')">Watch Demo</div>
+    </div>
 
-  <p>We build great products for everyone — or so we claim.</p>
+    <!-- Violation 1: WCAG 1.1.1 — img missing alt attribute -->
+    <div class="hero-image">
+      <img src="hero-dashboard.png" style="width:100%;height:280px;background:linear-gradient(135deg,#2d2b55,#3a3a5c);border-radius:12px;border:1px solid #3a3a5c;display:block;">
+    </div>
+  </section>
 
-  <!-- Violation 2: WCAG 1.4.3 — button with insufficient color contrast (#aaa on #ccc = ~1.6:1) -->
-  <button style="color:#aaa;background:#ccc;padding:8px 16px;border:none;font-size:16px;cursor:pointer;">
-    Submit
-  </button>
+  <!-- Features Section -->
+  <section class="features" id="features">
+    <h2>Everything you need to ship</h2>
+    <p class="subtitle">Powerful features that grow with your team</p>
+    <div class="features-grid">
+      <div class="feature-card">
+        <div class="feature-icon icon-blue">&#9889;</div>
+        <h3>Lightning Fast</h3>
+        <p>Sub-second load times with our edge-optimized infrastructure. Your users will never wait again.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon icon-green">&#128274;</div>
+        <h3>Enterprise Security</h3>
+        <p>SOC 2 compliant with end-to-end encryption. Your data is always safe and private with us.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon icon-purple">&#128640;</div>
+        <h3>Easy Integration</h3>
+        <p>Connect with 200+ tools your team already uses. One-click setup with no engineering required.</p>
+      </div>
+    </div>
+  </section>
 
-  <hr>
+  <!-- Contact Section -->
+  <section class="contact" id="contact">
+    <div class="contact-inner">
+      <h2>Get in Touch</h2>
+      <p>Have questions? We'd love to hear from you. Send us a message and we'll get back within 24 hours.</p>
+      <form class="contact-form" onsubmit="event.preventDefault();alert('Sent!');">
+        <!-- Violation 3: WCAG 1.3.1 / 4.1.2 — inputs missing associated labels -->
+        <input type="text" placeholder="Full Name">
+        <input type="email" placeholder="Email Address">
+        <textarea placeholder="Your message..."></textarea>
+        <!-- Violation 2: low contrast button -->
+        <button type="submit" class="submit-btn">Send Message</button>
+      </form>
+    </div>
+  </section>
 
-  <h2>Contact Us</h2>
-
-  <!-- Violation 3: WCAG 1.3.1 / 4.1.2 — input has no associated <label> -->
-  <div>
-    <input type="email" placeholder="Email" style="padding:8px;font-size:14px;border:1px solid #ccc;">
-  </div>
-
-  <hr>
-
-  <h2>Interactive Demo</h2>
-
-  <!-- Violation 4: WCAG 2.1.1 — div with onclick is not keyboard focusable or operable -->
-  <div
-    onclick="alert('You clicked the div!')"
-    style="display:inline-block;padding:10px 20px;background:#4a90e2;color:#fff;border-radius:4px;cursor:pointer;"
-  >
-    Click me
-  </div>
-
-  <p style="margin-top:40px;color:#888;font-size:12px;">
-    This page intentionally contains WCAG 2.2 violations for accessibility testing purposes.
-  </p>
+  <!-- Footer -->
+  <footer>
+    <div class="footer-links">
+      <a href="#">Privacy Policy</a>
+      <a href="#">Terms of Service</a>
+      <a href="#">Documentation</a>
+      <a href="#">Support</a>
+    </div>
+    <p>&copy; 2025 AcmeCorp. All rights reserved. This page intentionally contains WCAG 2.2 violations for accessibility testing.</p>
+  </footer>
 
 </body>
 </html>

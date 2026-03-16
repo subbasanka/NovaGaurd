@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Mic, Square, MicOff, Volume2 } from "lucide-react";
+import { Mic, Square, MicOff, Volume2, MessageSquare } from "lucide-react";
 import type { Finding } from "../types";
 import { cn } from "../lib/cn";
 
@@ -60,6 +60,12 @@ class ResampleProcessor extends AudioWorkletProcessor {
 }
 registerProcessor('resample-processor', ResampleProcessor);
 `;
+
+const PROMPT_CHIPS = [
+  { label: "Explain finding", action: "explain", arg: "1" },
+  { label: "Approve fix", action: "approve" },
+  { label: "Fix all issues", action: "fix_all" },
+];
 
 export function VoicePanel({ runId, findings, onVoiceCommand }: Props) {
   const [isStreaming, setIsStreaming] = useState(false);
@@ -450,7 +456,7 @@ export function VoicePanel({ runId, findings, onVoiceCommand }: Props) {
       )}
 
       {/* Prompt chips — shown when not streaming */}
-      {/* {!isStreaming && !isConnecting && (
+      {!isStreaming && !isConnecting && (
         <div className="flex items-center gap-1.5 flex-shrink-0">
           <MessageSquare className="w-3 h-3 text-gray-600 flex-shrink-0" aria-hidden="true" />
           {PROMPT_CHIPS.slice(0, 3).map((chip) => (
@@ -463,7 +469,7 @@ export function VoicePanel({ runId, findings, onVoiceCommand }: Props) {
             </button>
           ))}
         </div>
-      )} */}
+      )}
     </div>
   );
 }

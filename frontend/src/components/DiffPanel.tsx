@@ -47,14 +47,36 @@ export function DiffPanel({ diff, status, runId, onApprove, verifyResult, batchP
         </div>
       );
     }
+    const isIdle = status === "idle" || status === "complete" || status === "failed";
     return (
-      <div className="flex flex-col items-center justify-center h-full text-gray-500 text-sm p-6 gap-3">
-        <FileCode className="w-8 h-8 text-gray-600" aria-hidden="true" />
-        <p className="text-center">
-          Click <strong className="text-gray-400">Review Fix</strong> on a finding to inspect the generated patch.
-          <br />
-          <span className="text-gray-600 text-xs">Nova 2 Lite generates minimal HTML diffs with WCAG rationale.</span>
-        </p>
+      <div className="flex flex-col items-center justify-center h-full text-gray-500 text-sm p-6 gap-4">
+        {isIdle ? (
+          <>
+            <div className="w-14 h-14 rounded-full bg-nova-500/10 border border-nova-500/20 flex items-center justify-center">
+              <FileCode className="w-6 h-6 text-nova-400/60" aria-hidden="true" />
+            </div>
+            <div className="text-center space-y-2 max-w-xs">
+              <p className="text-gray-400 font-medium">How NovaGuard Works</p>
+              <div className="text-xs text-gray-600 space-y-1.5">
+                <p><strong className="text-blue-400/80">1.</strong> Nova Act crawls your page via real Chromium</p>
+                <p><strong className="text-purple-400/80">2.</strong> Nova 2 Lite analyzes screenshots + DOM for WCAG 2.2 issues</p>
+                <p><strong className="text-amber-400/80">3.</strong> Nova 2 Lite generates minimal HTML patches</p>
+                <p><strong className="text-orange-400/80">4.</strong> You review and approve (human-in-the-loop)</p>
+                <p><strong className="text-indigo-400/80">5.</strong> Nova Act applies fixes via browser automation</p>
+                <p><strong className="text-cyan-400/80">6.</strong> Nova Act verifies fixes with before/after proof</p>
+              </div>
+            </div>
+          </>
+        ) : (
+          <>
+            <FileCode className="w-8 h-8 text-gray-600" aria-hidden="true" />
+            <p className="text-center">
+              Click <strong className="text-gray-400">Review Fix</strong> on a finding to inspect the generated patch.
+              <br />
+              <span className="text-gray-600 text-xs">Nova 2 Lite generates minimal HTML diffs with WCAG rationale.</span>
+            </p>
+          </>
+        )}
       </div>
     );
   }

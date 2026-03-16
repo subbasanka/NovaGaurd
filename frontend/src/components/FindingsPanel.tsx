@@ -60,14 +60,30 @@ export function FindingsPanel({ findings, diffs, verifyResults, onSelectDiff, on
   }
 
   if (findings.length === 0) {
+    const isIdle = status === "idle" || status === "complete" || status === "failed";
+    const isCrawling = status === "crawling";
     return (
       <div className="flex flex-col items-center justify-center h-full text-gray-500 text-sm p-6 gap-3">
         <Bot className="w-8 h-8 text-gray-600" aria-hidden="true" />
-        <p className="text-center">
-          Nova 2 Lite is analyzing the page for WCAG 2.2 violations.
-          <br />
-          <span className="text-gray-600 text-xs">Findings will appear here in real-time.</span>
-        </p>
+        {isIdle ? (
+          <p className="text-center">
+            Start an audit to discover WCAG 2.2 violations.
+            <br />
+            <span className="text-gray-600 text-xs">Findings are detected by Nova 2 Lite multimodal analysis.</span>
+          </p>
+        ) : isCrawling ? (
+          <p className="text-center">
+            Nova Act is crawling the page...
+            <br />
+            <span className="text-gray-600 text-xs">Screenshots and DOM will be analyzed next.</span>
+          </p>
+        ) : (
+          <p className="text-center">
+            Nova 2 Lite is analyzing the page for WCAG 2.2 violations.
+            <br />
+            <span className="text-gray-600 text-xs">Findings will appear here in real-time.</span>
+          </p>
+        )}
       </div>
     );
   }

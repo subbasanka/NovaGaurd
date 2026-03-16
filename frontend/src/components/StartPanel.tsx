@@ -8,6 +8,7 @@ interface Props {
   onStartAudit: () => void;
   onCancelAudit?: () => void;
   status: RunStatus;
+  isStarting?: boolean;
 }
 
 const STATUS_STYLES: Record<RunStatus, string> = {
@@ -34,7 +35,7 @@ const STATUS_LABELS: Record<RunStatus, string> = {
   failed: "Failed",
 };
 
-export function StartPanel({ targetUrl, onUrlChange, onStartAudit, onCancelAudit, status }: Props) {
+export function StartPanel({ targetUrl, onUrlChange, onStartAudit, onCancelAudit, status, isStarting }: Props) {
   const isActive = status !== "idle" && status !== "complete" && status !== "failed";
 
   return (
@@ -48,10 +49,6 @@ export function StartPanel({ targetUrl, onUrlChange, onStartAudit, onCancelAudit
           <span className="text-lg font-bold text-gray-100 tracking-tight leading-tight">NovaGuard</span>
           <span className="text-[10px] text-gray-500 leading-tight tracking-wide">AI Accessibility Compliance Agent</span>
         </div>
-        {/* <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/20 text-[9px] font-semibold text-amber-400 uppercase tracking-wider">
-          <Sparkles className="w-2.5 h-2.5" aria-hidden="true" />
-          Powered by Amazon Nova
-        </span> */}
       </div>
 
       {/* URL input */}
@@ -90,7 +87,7 @@ export function StartPanel({ targetUrl, onUrlChange, onStartAudit, onCancelAudit
       ) : (
         <button
           onClick={onStartAudit}
-          disabled={!targetUrl.trim()}
+          disabled={!targetUrl.trim() || isStarting}
           className={cn(
             "flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-semibold transition-all",
             "bg-nova-600 text-white hover:bg-nova-500 shadow-glow-sm hover:shadow-glow",
@@ -98,8 +95,17 @@ export function StartPanel({ targetUrl, onUrlChange, onStartAudit, onCancelAudit
           )}
           aria-label="Start accessibility audit"
         >
-          <Play className="w-4 h-4" aria-hidden="true" />
-          Start Audit
+          {isStarting ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
+              Starting...
+            </>
+          ) : (
+            <>
+              <Play className="w-4 h-4" aria-hidden="true" />
+              Start Audit
+            </>
+          )}
         </button>
       )}
 

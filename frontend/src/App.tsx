@@ -1,6 +1,6 @@
 import { useState, useCallback, useMemo, useEffect } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Download, CheckCircle, XCircle, Shield, RefreshCw } from "lucide-react";
+import { Download, CheckCircle, XCircle, Shield, RefreshCw, Sparkles } from "lucide-react";
 import type { Diff, Finding, Project, RegressionSummary, RunListItem } from "./types";
 import { getApiUrl } from "./api";
 import { useAuditWebSocket } from "./hooks/useAuditWebSocket";
@@ -14,6 +14,7 @@ import { ErrorToast } from "./components/ErrorToast";
 import { AccessibilityScore } from "./components/AccessibilityScore";
 import { RecentRunsPanel } from "./components/RecentRunsPanel";
 import { NewProjectModal } from "./components/NewProjectModal";
+import { PipelineStepper } from "./components/PipelineStepper";
 
 function getSavedRunId(): string | null {
   try {
@@ -44,6 +45,7 @@ export default function App() {
   const [recentRuns, setRecentRuns] = useState<RunListItem[]>([]);
   const [regression, setRegression] = useState<RegressionSummary | null>(null);
   const [showNewProject, setShowNewProject] = useState(false);
+  const [isStarting, setIsStarting] = useState(false);
 
   const handleRunInvalid = useCallback(() => {
     setRunId(null);
@@ -130,6 +132,7 @@ export default function App() {
       return;
     }
     setError(null);
+    setIsStarting(true);
     try {
       const res = await fetch(`${getApiUrl()}/runs/start`, {
         method: "POST",
@@ -156,6 +159,8 @@ export default function App() {
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to start audit";
       setError(msg);
+    } finally {
+      setIsStarting(false);
     }
   }
 
@@ -292,6 +297,10 @@ export default function App() {
               Baseline set
             </span>
           )}
+          <span className="ml-auto flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-500/10 border border-amber-500/20 text-[9px] font-semibold text-amber-400 uppercase tracking-wider">
+            <Sparkles className="w-2.5 h-2.5" aria-hidden="true" />
+            Built with Amazon Nova
+          </span>
         </div>
         <StartPanel
           targetUrl={targetUrl}
@@ -299,8 +308,23 @@ export default function App() {
           onStartAudit={startAudit}
           onCancelAudit={cancelAudit}
           status={status}
+          isStarting={isStarting}
         />
       </header>
+
+      {/* Pipeline stepper — visible during active audit */}
+      <AnimatePresence>
+        {status !== "idle" && status !== "failed" && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            className="overflow-hidden"
+          >
+            <PipelineStepper status={status} />
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Final outcome summary card when complete */}
       <AnimatePresence>
@@ -503,6 +527,13 @@ export default function App() {
         onClose={() => setShowNewProject(false)}
         onCreate={createProject}
       />
+
+      {/* Tech stack footer */}
+      <footer className="flex-shrink-0 px-6 py-1.5 bg-surface border-t border-surface-border text-center">
+        <p className="text-[10px] text-gray-600">
+          Built with Amazon Nova Act + Nova 2 Lite + Nova 2 Sonic &middot; Strands Agents SDK &middot; FastAPI + React
+        </p>
+      </footer>
     </div>
   );
 }
