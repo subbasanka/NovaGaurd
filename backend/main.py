@@ -228,6 +228,16 @@ async def list_projects():
     return {"projects": repo.list_projects()}
 
 
+@app.delete("/projects/{project_id}")
+async def delete_project(project_id: str):
+    if project_id == DEFAULT_PROJECT["id"]:
+        raise HTTPException(status_code=400, detail="Cannot delete the default project")
+    deleted = repo.delete_project(project_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return {"status": "deleted"}
+
+
 @app.post("/projects/{project_id}/runs/start")
 async def start_project_run(project_id: str, body: StartProjectRunRequest):
     project = repo.get_project(project_id)

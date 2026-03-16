@@ -119,6 +119,14 @@ class SqliteRunRepository:
             ).fetchall()
         return [dict(r) for r in rows]
 
+    def delete_project(self, project_id: str) -> bool:
+        with self._conn() as conn:
+            # Delete associated runs first (FK constraint)
+            conn.execute("DELETE FROM finding_triage WHERE run_id IN (SELECT run_id FROM runs WHERE project_id = ?)", (project_id,))
+            conn.execute("DELETE FROM runs WHERE project_id = ?", (project_id,))
+            cur = conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
+        return cur.rowcount > 0
+
     def set_baseline(self, project_id: str, run_id: str) -> bool:
         now = utc_now_iso()
         with self._conn() as conn:

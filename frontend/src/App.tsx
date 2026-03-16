@@ -15,6 +15,7 @@ import { AccessibilityScore } from "./components/AccessibilityScore";
 import { RecentRunsPanel } from "./components/RecentRunsPanel";
 import { NewProjectModal } from "./components/NewProjectModal";
 import { PipelineStepper } from "./components/PipelineStepper";
+import { ProjectDropdown } from "./components/ProjectDropdown";
 
 function getSavedRunId(): string | null {
   try {
@@ -227,6 +228,36 @@ export default function App() {
     }
   }
 
+  async function deleteProject(delId: string, delName: string) {
+    if (!window.confirm(`Delete "${delName}" and all its runs? This cannot be undone.`)) return;
+    try {
+      const res = await fetch(`${getApiUrl()}/projects/${delId}`, { method: "DELETE" });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { detail?: string };
+        setError(data.detail ?? "Failed to delete project");
+        return;
+      }
+      const remaining = projects.filter((p) => p.id !== delId);
+      setProjects(remaining);
+      if (projectId === delId) {
+        setRunId(null);
+        setSelectedDiff(null);
+        try { sessionStorage.removeItem("novaguard_run_id"); } catch { /* ignore */ }
+        if (remaining.length > 0) {
+          setProjectId(remaining[0].id);
+          setTargetUrl(remaining[0].default_url);
+          setBaselineRunId(remaining[0].baseline_run_id ?? null);
+        } else {
+          setProjectId(null);
+          setTargetUrl("http://localhost:8080");
+          setBaselineRunId(null);
+        }
+      }
+    } catch {
+      setError("Failed to delete project");
+    }
+  }
+
   function downloadReport() {
     if (!runId) return;
     window.open(`${getApiUrl()}/runs/${runId}/report`, "_blank");
@@ -266,19 +297,14 @@ export default function App() {
       {/* Header */}
       <header>
         <div className="px-6 py-2 border-b border-surface-border bg-surface flex items-center gap-3">
-          <label htmlFor="project-select" className="text-xs text-gray-400 font-semibold uppercase tracking-wider">
+          <span className="text-xs text-gray-400 font-semibold uppercase tracking-wider">
             Project
-          </label>
-          <select
-            id="project-select"
-            value={projectId ?? ""}
-            onChange={(e) => {
-              const nextId = e.target.value;
-              if (nextId === "__new__") {
-                e.target.value = projectId ?? "";
-                setShowNewProject(true);
-                return;
-              }
+          </span>
+          <ProjectDropdown
+            projects={projects}
+            selectedId={projectId}
+            defaultProjectId={projects.find((p) => p.name === "Default")?.id}
+            onSelect={(nextId) => {
               setProjectId(nextId);
               setRunId(null);
               setSelectedDiff(null);
@@ -289,15 +315,9 @@ export default function App() {
                 setBaselineRunId(p.baseline_run_id ?? null);
               }
             }}
-            className="px-2.5 py-1.5 rounded-md text-xs bg-surface-raised border border-surface-border text-gray-200"
-          >
-            {projects.map((project) => (
-              <option key={project.id} value={project.id}>
-                {project.name}
-              </option>
-            ))}
-            <option value="__new__">+ New Project</option>
-          </select>
+            onNew={() => setShowNewProject(true)}
+            onDelete={deleteProject}
+          />
           {baselineRunId && (
             <span className="text-[11px] text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded px-2 py-1">
               Baseline set
