@@ -153,7 +153,17 @@ export function useAuditWebSocket(runId: string | null, onRunInvalid?: () => voi
   }, []);
 
   useEffect(() => {
-    if (!runId) return;
+    if (!runId) {
+      setEvents([]);
+      setFindings([]);
+      setDiffs([]);
+      setStatus("idle");
+      setVerifyResults([]);
+      setBatchProgress(null);
+      setSummary(null);
+      setRunError(null);
+      return;
+    }
 
     let cancelled = false;
 

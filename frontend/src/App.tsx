@@ -218,6 +218,9 @@ export default function App() {
       setProjectId(created.id);
       setTargetUrl(created.default_url);
       setBaselineRunId(null);
+      setRunId(null);
+      setSelectedDiff(null);
+      try { sessionStorage.removeItem("novaguard_run_id"); } catch { /* ignore */ }
       setShowNewProject(false);
     } catch {
       setError("Failed to create project");
@@ -277,6 +280,9 @@ export default function App() {
                 return;
               }
               setProjectId(nextId);
+              setRunId(null);
+              setSelectedDiff(null);
+              try { sessionStorage.removeItem("novaguard_run_id"); } catch { /* ignore */ }
               const p = projects.find((item) => item.id === nextId);
               if (p) {
                 setTargetUrl(p.default_url);
